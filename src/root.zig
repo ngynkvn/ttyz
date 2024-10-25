@@ -20,19 +20,18 @@ pub const Terminal = struct {
     pub const CursorPos = struct { row: usize, col: usize };
     pub const FlagOpts = struct {
         // zig fmt: off
-        const ECHO   = false;  // Disable echo input
-        const ICANON = false;  // Read byte by byte
-        const IEXTEN = false;  // Disable <C-v>
-        const ISIG   = false;  // Disable <C-c> and <C-z>
-        const IXON   = false;  // Disable <C-s> and <C-q>
-        const ICRNL  = false;  // Disable <C-m>
-        const BRKINT = false;  // Break condition sends SIGINT
-        const INPCK  = false;  // Enable parity checking
-        const ISTRIP = false;  // Strip 8th bit of input byte
-        const OPOST  = false;  // Disable translating "\n" to "\r\n"
-        const CSIZE  = .CS8;
-        const MIN    = 1;
-        const TIME   = 0;
+        ECHO  : bool  =  false,  // Disable echo input
+        ICANON: bool  =  false,  // Read byte by byte
+        IEXTEN: bool  =  false,  // Disable <C-v>
+        ISIG  : bool  =  false,  // Disable <C-c> and <C-z>
+        IXON  : bool  =  false,  // Disable <C-s> and <C-q>
+        ICRNL : bool  =  false,  // Disable <C-m>
+        BRKINT: bool  =  false,  // Break condition sends SIGINT
+        INPCK : bool  =  false,  // Enable parity checking
+        ISTRIP: bool  =  false,  // Strip 8th bit of input byte
+        OPOST : bool  =  false,  // Disable translating "\n" to "\r\n"
+        MIN   : u8    =  0,
+        TIME  : u8    =  0,
         // zig fmt: on
     };
 
@@ -44,30 +43,29 @@ pub const Terminal = struct {
     ///
     /// Explanation here: https://viewsourcecode.org/snaptoken/kilo/02.enteringRawMode.html
     /// https://zig.news/lhp/want-to-create-a-tui-application-the-basics-of-uncooked-terminal-io-17gm
-    pub fn init(allocator: std.mem.Allocator, flags: FlagOpts) !Terminal {
+    pub fn init(allocator: std.mem.Allocator, fo: FlagOpts) !Terminal {
         const tty = try std.fs.openFileAbsolute(TTY_HANDLE, .{ .mode = .read_write });
         if (!tty.isTty()) {
             return error.NotATty;
         }
         const orig_termios = try posix.tcgetattr(tty.handle);
         var raw = orig_termios;
-        _ = flags;
         // Some explanation of the flags can be found in the links above.
         // zig fmt: off
-        raw.lflag.ECHO   = false;                 // Disable echo input
-        raw.lflag.ICANON = false;                 // Read byte by byte
-        raw.lflag.IEXTEN = false;                 // Disable <C-v>
-        raw.lflag.ISIG   = false;                 // Disable <C-c> and <C-z>
-        raw.iflag.IXON   = false;                 // Disable <C-s> and <C-q>
-        raw.iflag.ICRNL  = false;                 // Disable <C-m>
-        raw.iflag.BRKINT = false;                 // Break condition sends SIGINT
-        raw.iflag.INPCK  = false;                 // Enable parity checking
-        raw.iflag.ISTRIP = false;                 // Strip 8th bit of input byte
-        raw.oflag.OPOST  = false;                 // Disable translating "\n" to "\r\n"
+        raw.lflag.ECHO   = fo.ECHO;   // Disable echo input
+        raw.lflag.ICANON = fo.ICANON; // Read byte by byte
+        raw.lflag.IEXTEN = fo.IEXTEN; // Disable <C-v>
+        raw.lflag.ISIG   = fo.ISIG;   // Disable <C-c> and <C-z>
+        raw.iflag.IXON   = fo.IXON;   // Disable <C-s> and <C-q>
+        raw.iflag.ICRNL  = fo.ICRNL;  // Disable <C-m>
+        raw.iflag.BRKINT = fo.BRKINT; // Break condition sends SIGINT
+        raw.iflag.INPCK  = fo.INPCK;  // Enable parity checking
+        raw.iflag.ISTRIP = fo.ISTRIP; // Strip 8th bit of input byte
+        raw.oflag.OPOST  = fo.OPOST;  // Disable translating "\n" to "\r\n"
         raw.cflag.CSIZE  = .CS8;
 
-        raw.cc[@intFromEnum(system.V.MIN)]  = 0;  // min bytes required for read
-        raw.cc[@intFromEnum(system.V.TIME)] = 0;  // min time to wait for response, 100ms per unit
+        raw.cc[@intFromEnum(system.V.MIN)]  = fo.MIN;  // min bytes required for read
+        raw.cc[@intFromEnum(system.V.TIME)] = fo.TIME; // min time to wait for response, 100ms per unit
         // zig fmt: on
 
         const rc = system.tcsetattr(tty.handle, .FLUSH, &raw);

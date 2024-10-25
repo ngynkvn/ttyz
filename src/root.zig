@@ -18,6 +18,23 @@ pub const Terminal = struct {
     buffer: std.ArrayList(u8),
     pub const Error = std.posix.WriteError;
     pub const CursorPos = struct { row: usize, col: usize };
+    pub const FlagOpts = struct {
+        // zig fmt: off
+        const ECHO   = false;  // Disable echo input
+        const ICANON = false;  // Read byte by byte
+        const IEXTEN = false;  // Disable <C-v>
+        const ISIG   = false;  // Disable <C-c> and <C-z>
+        const IXON   = false;  // Disable <C-s> and <C-q>
+        const ICRNL  = false;  // Disable <C-m>
+        const BRKINT = false;  // Break condition sends SIGINT
+        const INPCK  = false;  // Enable parity checking
+        const ISTRIP = false;  // Strip 8th bit of input byte
+        const OPOST  = false;  // Disable translating "\n" to "\r\n"
+        const CSIZE  = .CS8;
+        const MIN    = 1;
+        const TIME   = 0;
+        // zig fmt: on
+    };
 
     /// Enter "raw mode", returning a struct that wraps around the provided tty file
     /// Entering raw mode will automatically send the sequence for entering an
@@ -27,15 +44,15 @@ pub const Terminal = struct {
     ///
     /// Explanation here: https://viewsourcecode.org/snaptoken/kilo/02.enteringRawMode.html
     /// https://zig.news/lhp/want-to-create-a-tui-application-the-basics-of-uncooked-terminal-io-17gm
-    pub fn init(allocator: std.mem.Allocator) !Terminal {
+    pub fn init(allocator: std.mem.Allocator, flags: FlagOpts) !Terminal {
         const tty = try std.fs.openFileAbsolute(TTY_HANDLE, .{ .mode = .read_write });
         if (!tty.isTty()) {
             return error.NotATty;
         }
         const orig_termios = try posix.tcgetattr(tty.handle);
         var raw = orig_termios;
+        _ = flags;
         // Some explanation of the flags can be found in the links above.
-        // TODO: check out the other flags later
         // zig fmt: off
         raw.lflag.ECHO   = false;                 // Disable echo input
         raw.lflag.ICANON = false;                 // Read byte by byte
@@ -175,6 +192,10 @@ pub const Terminal = struct {
     /// raw write
     pub fn write(self: *Terminal, buf: []const u8) !usize {
         return self.buffer.writer().write(buf);
+    }
+    /// raw write
+    pub fn clear(self: *Terminal) !usize {
+        return self.buffer.writer().write(E.CLEAR_SCREEN);
     }
 
     /// print to screen via fmt string

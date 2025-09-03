@@ -4,6 +4,7 @@ const posix = std.posix;
 const system = posix.system;
 
 pub const kitty = @import("kitty.zig");
+pub const draw = @import("draw.zig");
 
 pub const CONFIG = .{
     // Disable tty's SIGINT handling,
@@ -290,12 +291,7 @@ pub const Screen = struct {
     pub fn querySize(self: *Screen) !posix.winsize {
         self.lock.lock();
         defer self.lock.unlock();
-        // IOCGWINSZ (io control get window size (?)) is a request signal for window size
-        var ws: posix.winsize = .{ .row = 0, .col = 0, .xpixel = 0, .ypixel = 0 };
-        // Get the window size via ioctl(2) call to tty
-        const result = system.ioctl(self.tty.handle, posix.T.IOCGWINSZ, @intFromPtr(&ws));
-        if (posix.errno(result) != .SUCCESS) return error.IoctlReturnedNonZero;
-        return ws;
+        return try queryHandleSize(self.tty.handle);
     }
 
     /// read input
@@ -383,4 +379,11 @@ pub fn panicTty(msg: []const u8, ra: ?usize) noreturn {
         if (orig_termios) |orig| _ = system.tcsetattr(tty.handle, .FLUSH, &orig);
     }
     std.debug.defaultPanic(msg, ra);
+}
+
+pub fn queryHandleSize(handle: std.fs.File.Handle) !posix.winsize {
+    var ws: posix.winsize = .{ .row = 0, .col = 0, .xpixel = 0, .ypixel = 0 };
+    const result = system.ioctl(handle, posix.T.IOCGWINSZ, @intFromPtr(&ws));
+    if (posix.errno(result) != .SUCCESS) return error.IoctlReturnedNonZero;
+    return ws;
 }

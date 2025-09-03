@@ -3,15 +3,25 @@ const ttyz = @import("ttyz");
 const E = ttyz.E;
 
 pub fn main() !void {
+    // const tty = std.fs.File.stdout();
     const tty = try std.fs.openFileAbsolute("/dev/tty", .{ .mode = .read_write });
+    // const ws = try ttyz.queryHandleSize(tty.handle);
+    var w = tty.writer(&.{});
+
     var image = ttyz.kitty.Image.default;
     image.params.a = 'T';
     image.params.t = 'f';
     image.params.f = 100;
     image.filePath("testdata/mushroom.png");
     var w = tty.writer(&.{});
+    image.filePath("/Users/ngynkvn/dev/zig/ttyz/testdata/mushroom.png");
+    var w = tty.writer(&.{});
     try image.write(&w.interface);
-    try w.interface.flush();
+
+    var canvas = try ttyz.draw.Canvas.initAlloc(std.heap.page_allocator, 200, 200);
+    try canvas.drawBox(0, 0, 150, 150, 0xFFFFFFFF);
+    try canvas.writeKitty(&w.interface);
+
     {
         return;
     }
@@ -48,7 +58,6 @@ pub fn main() !void {
                 },
             }
         }
-        try s.print(E.ESC ++ "Gf=100,t=f,a=T;{s}" ++ E.ESC ++ "\\", .{"L1VzZXJzL25neW5rdm4vZGV2L3ppZy90dHl6L3Rlc3RkYXRhL211c2hyb29tLnBuZwo="});
         try s.flush();
         std.Thread.sleep(std.time.ns_per_s / 16);
     }

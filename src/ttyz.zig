@@ -6,8 +6,8 @@ const system = posix.system;
 pub const CONFIG = .{
     // Disable tty's SIGINT handling,
     .HANDLE_SIGINT = true,
-    .START_SEQUENCE = E.ENTER_ALT_SCREEN ++ E.CURSOR_INVISIBLE,
-    .EXIT_SEQUENCE = E.EXIT_ALT_SCREEN ++ E.CURSOR_VISIBLE,
+    .START_SEQUENCE = E.ENTER_ALT_SCREEN,
+    .EXIT_SEQUENCE = E.EXIT_ALT_SCREEN,
     .TTY_HANDLE = "/dev/tty",
 };
 
@@ -50,8 +50,9 @@ pub const E = struct {
 const cc = std.ascii.control_code;
 // zig fmt: on
 
+var orig_termios: ?posix.termios = null;
+var tty_handle: ?std.fs.File.Handle = null;
 pub const Screen = struct {
-    orig_termios: posix.termios,
     tty: std.fs.File,
     width: u16,
     height: u16,
@@ -80,8 +81,11 @@ pub const Screen = struct {
     }
 
     pub fn initFrom(tty: std.fs.File) !Screen {
-        const orig_termios = try posix.tcgetattr(tty.handle);
-        var raw = orig_termios;
+        tty_handle = tty.handle;
+        const orig = try posix.tcgetattr(tty.handle);
+        orig_termios = orig;
+
+        var raw = orig;
         // Some explanation of the flags can be found in the links above.
         // TODO: check out the other flags later
         // zig fmt: off
@@ -116,7 +120,6 @@ pub const Screen = struct {
         _ = try tty.write(CONFIG.START_SEQUENCE);
         var self: Screen = undefined;
         self = .{
-            .orig_termios = orig_termios,
             .tty = tty,
             .running = true,
             .width = width,
@@ -139,7 +142,10 @@ pub const Screen = struct {
         self.running = false;
         if (self.io_thread) |thread| thread.join();
         _ = try self.tty.write(CONFIG.EXIT_SEQUENCE);
-        const rc = system.tcsetattr(self.tty.handle, .FLUSH, &self.orig_termios);
+        const rc = if (orig_termios) |orig|
+            system.tcsetattr(self.tty.handle, .FLUSH, &orig)
+        else
+            0;
         self.tty.close();
         return posix.errno(rc);
     }
@@ -325,3 +331,14 @@ pub const Event = union(enum) {
     key: Key,
     cursor_pos: CursorPos,
 };
+
+pub const panic = std.debug.FullPanic(panicTty);
+
+pub fn panicTty(msg: []const u8, ra: ?usize) noreturn {
+    if (tty_handle) |handle| {
+        const tty = std.fs.File{ .handle = handle };
+        tty.writeAll(CONFIG.EXIT_SEQUENCE) catch {};
+        if (orig_termios) |orig| _ = system.tcsetattr(tty.handle, .FLUSH, &orig);
+    }
+    std.debug.defaultPanic(msg, ra);
+}

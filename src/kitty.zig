@@ -1,28 +1,29 @@
 const std = @import("std");
 const cc = std.ascii.control_code;
-const b64Encoder = std.base64.standard_no_pad.Encoder;
 /// https://sw.kovidgoyal.net/kitty/graphics-protocol/#control-data-reference
 pub const Image = struct {
+    pub fn setPayload(self: *Image, payload: []const u8) void {
+        self.payload = payload;
+    }
     pub fn filePath(self: *Image, path: []const u8) void {
-        self.path = path;
+        self.payload = path;
     }
     pub fn write(self: *Image, w: *std.io.Writer) !void {
         try w.writeAll(.{@as(u8, cc.esc)} ++ "_G");
         inline for (@typeInfo(@FieldType(Image, "params")).@"struct".fields) |field| {
             const value = @field(self.params, field.name);
             if (value != @field(Image.default.params, field.name)) {
-                const fmt = Image.Params.Format(@TypeOf(value), value);
-                try w.print(field.name ++ "={f},", .{fmt});
+                const fmt = comptime Image.Params.Format(field.name, field.type);
+                try w.print(fmt, .{value});
             }
         }
-        try w.writeAll("p=0");
         try w.writeByte(';');
-        try b64Encoder.encodeWriter(w, self.path);
+        try w.printBase64(self.payload);
         try w.writeAll(.{@as(u8, cc.esc)} ++ "\\");
         try w.flush();
     }
     pub const default = Image{
-        .path = "",
+        .payload = "",
         // zig fmt: off
         .params = .{
             .a = 't', .q = 0,
@@ -40,7 +41,8 @@ pub const Image = struct {
         },
         // zig fmt: on
     };
-    path: []const u8,
+    payload: []const u8,
+
     params: Params,
     const Params = struct {
         // zig fmt: off
@@ -49,7 +51,7 @@ pub const Image = struct {
         f: usize, t: u8, s: usize,
         v: usize, S: usize, O: usize,
         i: usize, I: usize, p: usize,
-        o: u1, m: u1,
+        o: u8, m: usize,
         // Keys for image display
         x: usize, y: usize, w: usize,
         h: usize, X: usize, Y: usize,
@@ -57,29 +59,12 @@ pub const Image = struct {
         U: usize, z: usize, P: usize,
         Q: usize, H: usize, V: usize,
         // zig fmt: on
-
-        fn _char(value: u8, w: *std.io.Writer) error{WriteFailed}!void {
-            try w.print("{c}", .{value});
-        }
-        fn _int(value: usize, w: *std.io.Writer) error{WriteFailed}!void {
-            try w.print("{d}", .{value});
-        }
-        fn _u1(value: u1, w: *std.io.Writer) error{WriteFailed}!void {
-            try w.print("{d}", .{value});
-        }
-        fn _usize(value: usize, w: *std.io.Writer) error{WriteFailed}!void {
-            try w.print("{d}", .{value});
-        }
-        fn FormatFn(T: type) fn (T, *std.io.Writer) error{WriteFailed}!void {
-            return switch (T) {
-                u8 => _char,
-                u1 => _u1,
-                usize => _usize,
+        fn Format(comptime name: []const u8, T: type) []const u8 {
+            return name ++ switch (T) {
+                u8 => "={c}",
+                usize => "={d}",
                 else => unreachable,
-            };
-        }
-        fn Format(T: type, value: T) std.fmt.Alt(T, FormatFn(T)) {
-            return .{ .data = value };
+            } ++ ",";
         }
     };
 };

@@ -46,7 +46,7 @@ pub fn main() !void {
             .id = 1,
             .layoutDirection = .left_to_right,
             .sizing = .As(.fit, .fit),
-            .padding = .All(4),
+            .padding = .All(1),
         });
         {
             L.OpenElement(.{
@@ -57,13 +57,13 @@ pub fn main() !void {
             // L.Text("Hello, world2");
             L.CloseElement();
 
-            // L.OpenElement(.{
-            //     .id = 3,
-            //     .sizing = .As(.Fixed(20), .Fixed(10)),
-            //     .backgroundColor = .{ 43, 255, 51, 255 },
-            // });
-            // // L.Text("Hello, world3");
-            // L.CloseElement();
+            L.OpenElement(.{
+                .id = 3,
+                .sizing = .As(.Fixed(20), .Fixed(10)),
+                .backgroundColor = .{ 43, 255, 51, 255 },
+            });
+            // L.Text("Hello, world3");
+            L.CloseElement();
         }
         L.CloseElement();
 
@@ -71,9 +71,10 @@ pub fn main() !void {
         try s.home();
         const renderCommands = try L.end();
         defer allocator.free(renderCommands);
+
         for (1.., renderCommands) |i, command| {
-            const ui = command.node.ui;
             _ = i;
+            const ui = command.node.ui;
             switch (command.node.tag) {
                 .text => {
                     try s.print(E.GOTO ++ "{s}\n", .{ ui.y, ui.x, command.data });
@@ -83,6 +84,7 @@ pub fn main() !void {
                         &s.writer.interface,
                         .{ .x = ui.x, .y = ui.y, .width = ui.width, .height = ui.height },
                     );
+                    try s.writer.interface.writeAll("\x1b[0m");
                 },
             }
         }

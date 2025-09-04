@@ -39,3 +39,6 @@ pub const SET_ANSI_BG        = ESC ++ "[4{d}m";
 pub const SET_TRUCOLOR       = ESC ++ "[38;2;{};{};{}m";
 pub const RESET_COLORS       = ESC ++ "[m";
 // zig fmt: on
+
+pub const ENABLE_MOUSE_TRACKING = ESC ++ "[?1000;1006;1015h";
+pub const DISABLE_MOUSE_TRACKING = ESC ++ "[?1000;1006;1015l";

@@ -1,54 +1,54 @@
 const E = @import("ttyz.zig").E;
 const std = @import("std");
 
-pub const TermDraw = struct {
-    width: usize,
-    height: usize,
-    const C = BoxChars.Heavy;
-    const horiz = C.get(.horiz);
-    const vert = C.get(.vert);
-    const dl = C.get(.dl);
-    const dr = C.get(.dr);
-    const ur = C.get(.ur);
-    const ul = C.get(.ul);
+pub const TermDraw = @This();
 
-    pub fn init(width: usize, height: usize) !TermDraw {
-        return .{ .width = width, .height = height };
-    }
+width: usize,
+height: usize,
+const C = BoxChars.Heavy;
+const horiz = C.get(.horiz);
+const vert = C.get(.vert);
+const dl = C.get(.dl);
+const dr = C.get(.dr);
+const ur = C.get(.ur);
+const ul = C.get(.ul);
 
-    const BoxOptions = struct { x: u16, y: u16, width: u16, height: u16 };
-    pub fn box(w: *std.io.Writer, o: BoxOptions) !void {
-        try w.print(E.GOTO, .{ o.y, o.x });
-        try w.writeAll(dr);
-        _ = try w.writeSplat(&.{horiz}, o.width -| 1);
-        try w.writeAll(dl);
-        for (1..o.height) |i| {
-            try w.print(E.GOTO, .{ o.y + i, o.x });
-            try w.writeAll(vert);
-            try w.print(E.GOTO, .{ o.y + i, o.x + o.width });
-            try w.writeAll(vert);
-        }
-        try w.print(E.GOTO, .{ o.y + o.height, o.x });
-        try w.writeAll(ur);
-        _ = try w.writeSplat(&.{horiz}, o.width -| 1);
-        try w.writeAll(ul);
-    }
+pub fn init(width: usize, height: usize) !TermDraw {
+    return .{ .width = width, .height = height };
+}
 
-    const HLineOptions = struct { x: u16, y: u16, width: u16 };
-    pub fn hline(w: *std.io.Writer, o: HLineOptions) !void {
-        try w.print(E.GOTO, .{ o.y, o.x });
-        _ = try w.writeSplat(&.{horiz}, o.width);
+const BoxOptions = struct { x: u16, y: u16, width: u16, height: u16 };
+pub fn box(w: *std.io.Writer, o: BoxOptions) !void {
+    try w.print(E.GOTO, .{ o.y, o.x });
+    try w.writeAll(dr);
+    _ = try w.writeSplat(&.{horiz}, o.width -| 1);
+    try w.writeAll(dl);
+    for (1..o.height) |i| {
+        try w.print(E.GOTO, .{ o.y + i, o.x });
+        try w.writeAll(vert);
+        try w.print(E.GOTO, .{ o.y + i, o.x + o.width });
+        try w.writeAll(vert);
     }
+    try w.print(E.GOTO, .{ o.y + o.height, o.x });
+    try w.writeAll(ur);
+    _ = try w.writeSplat(&.{horiz}, o.width -| 1);
+    try w.writeAll(ul);
+}
 
-    const VLineOptions = struct { x: u16, y: u16, height: u16 };
-    pub fn vline(w: *std.io.Writer, o: VLineOptions) !void {
-        try w.print(E.GOTO, .{ o.y, o.x });
-        for (0..o.height) |i| {
-            try w.print(E.GOTO, .{ o.y + i, o.x });
-            try w.writeAll(vert);
-        }
+const HLineOptions = struct { x: u16, y: u16, width: u16 };
+pub fn hline(w: *std.io.Writer, o: HLineOptions) !void {
+    try w.print(E.GOTO, .{ o.y, o.x });
+    _ = try w.writeSplat(&.{horiz}, o.width);
+}
+
+const VLineOptions = struct { x: u16, y: u16, height: u16 };
+pub fn vline(w: *std.io.Writer, o: VLineOptions) !void {
+    try w.print(E.GOTO, .{ o.y, o.x });
+    for (0..o.height) |i| {
+        try w.print(E.GOTO, .{ o.y + i, o.x });
+        try w.writeAll(vert);
     }
-};
+}
 
 const BoxChars = struct {
     const Heavy = std.enums.EnumArray(Names.Heavy, []const u8).init(.{

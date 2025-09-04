@@ -8,55 +8,16 @@ pub const draw = @import("draw.zig");
 pub const termdraw = @import("termdraw.zig");
 pub const layout = @import("layout.zig");
 pub const colorz = @import("colorz.zig");
-pub const esc = @import("esc.zig");
+pub const E = @import("esc.zig");
 
 pub const CONFIG = .{
     // Disable tty's SIGINT handling,
     .HANDLE_SIGINT = true,
-    .START_SEQUENCE = E.ENTER_ALT_SCREEN ++ E.CURSOR_INVISIBLE,
-    .EXIT_SEQUENCE = E.EXIT_ALT_SCREEN ++ E.CURSOR_VISIBLE,
+    .START_SEQUENCE = E.ENTER_ALT_SCREEN ++ E.CURSOR_INVISIBLE ++ E.ENABLE_MOUSE_TRACKING,
+    .EXIT_SEQUENCE = E.EXIT_ALT_SCREEN ++ E.CURSOR_VISIBLE ++ E.DISABLE_MOUSE_TRACKING,
     .TTY_HANDLE = "/dev/tty",
 };
 
-/// vt100 / xterm escape sequences
-/// References used:
-///  - https://vt100.net/docs/vt100-ug/chapter3.html
-///  - `man terminfo`, `man tput`, `man infocmp`
-// zig fmt: off
-pub const E = struct {
-    /// escape code prefix
-    pub const ESC= "\x1b";
-    pub const HOME               = ESC ++ "[H";
-    /// goto .{y, x}
-    pub const GOTO               = ESC ++ "[{d};{d}H";
-    pub const CLEAR_LINE         = ESC ++ "[K";
-    pub const CLEAR_DOWN         = ESC ++ "[0J";
-    pub const CLEAR_UP           = ESC ++ "[1J";
-    pub const CLEAR_SCREEN       = ESC ++ "[2J"; // NOTE: https://vt100.net/docs/vt100-ug/chapter3.html#ED
-    pub const ENTER_ALT_SCREEN   = ESC ++ "[?1049h";
-    pub const EXIT_ALT_SCREEN    = ESC ++ "[?1049l";
-    pub const REPORT_CURSOR_POS  = ESC ++ "[6n";
-    pub const CURSOR_INVISIBLE   = ESC ++ "[?25l";
-    pub const CURSOR_VISIBLE     = ESC ++ "[?12;25h";
-    pub const CURSOR_UP          = ESC ++ "[{}A";
-    pub const CURSOR_DOWN        = ESC ++ "[{}B";
-    pub const CURSOR_FORWARD     = ESC ++ "[{}C";
-    pub const CURSOR_BACKWARDS   = ESC ++ "[{}D";
-    pub const CURSOR_HOME_ROW    = ESC ++ "[1G";
-    pub const CURSOR_COL_ABS     = ESC ++ "[{}G";
-    pub const CURSOR_SAVE_POS    = ESC ++ "[7";
-    pub const CURSOR_RESTORE_POS = ESC ++ "[8";
-    /// setaf .{color}
-    pub const SET_ANSI_FG        = ESC ++ "[3{d}m";
-    /// setab .{color}
-    pub const SET_ANSI_BG        = ESC ++ "[4{d}m";
-    /// set true color (rgb)
-    pub const SET_TRUCOLOR       = ESC ++ "[38;2;{};{};{}m";
-    /// set true color (rgb)
-    pub const SET_TRUCOLOR_BG    = ESC ++ "[48;2;{};{};{}m";
-    pub const RESET_COLORS       = ESC ++ "[m";
-    
-};
 const cc = std.ascii.control_code;
 // zig fmt: on
 
@@ -332,7 +293,6 @@ pub fn queryHandleSize(handle: std.fs.File.Handle) !posix.winsize {
 }
 
 const Parser = struct {
-    const ParseState = enum { start, esc, csi, csi_num };
     buf: []u8,
     i: usize,
     fn init(buf: []u8) Parser {
@@ -361,6 +321,7 @@ const Parser = struct {
         self.advance();
     }
 
+    const ParseState = enum { start, esc, csi, csi_num };
     pub fn collectEvents(buf: []u8) ?Event {
         var p = Parser.init(buf);
         var event: ?Event = null;
@@ -383,6 +344,7 @@ const Parser = struct {
                 switch (p.next()) {
                     'A', 'B', 'C', 'D' => |c| event = .{ .key = .arrow(c) },
                     '0'...'9' => continue :state .csi_num,
+                    '<' => event = parseSgrMouse(p.buf[p.i..]),
                     else => break :state,
                 }
             },
@@ -391,7 +353,7 @@ const Parser = struct {
                 const last_byte = p.buf[p.buf.len - 1];
                 switch (last_byte) {
                     'R' => event = parseCursorPos(p.buf[s .. p.buf.len - 1]),
-                    else => break :state,
+                    else => std.debug.panic("unexpected last byte: {c}; {s}", .{ last_byte, p.buf[s..] }),
                 }
             },
         }
@@ -403,6 +365,14 @@ const Parser = struct {
         const row = std.fmt.parseInt(u16, buf[0..sep], 10) catch return null;
         const col = std.fmt.parseInt(u16, buf[sep + 1 ..], 10) catch return null;
         return .{ .cursor_pos = .{ .row = row, .col = col } };
+    }
+    pub fn parseSgrMouse(buf: []u8) ?Event {
+        std.log.info("parseSgrMouse: {s}", .{buf});
+        return null;
+        // const sep = std.mem.indexOf(u8, buf, ";") orelse return null;
+        // const row = std.fmt.parseInt(u16, buf[0..sep], 10) catch return null;
+        // const col = std.fmt.parseInt(u16, buf[sep + 1 ..], 10) catch return null;
+        // return .{ .cursor_pos = .{ .row = row, .col = col } };
     }
 };
 

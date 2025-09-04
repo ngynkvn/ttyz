@@ -39,6 +39,7 @@ pub fn main() !void {
     var L = layout.Context.init(allocator, &s);
     defer L.deinit();
 
+    var c = ttyz.colorz.wrap(&s.writer.interface);
     while (s.running) {
         _ = L.begin();
 
@@ -46,7 +47,7 @@ pub fn main() !void {
             .id = 1,
             .layoutDirection = .left_to_right,
             .sizing = .As(.fit, .fit),
-            .padding = .All(1),
+            .padding = .From(0, 1, 0, 1),
         });
         {
             L.OpenElement(.{
@@ -73,7 +74,6 @@ pub fn main() !void {
         defer allocator.free(renderCommands);
 
         for (1.., renderCommands) |i, command| {
-            _ = i;
             const ui = command.node.ui;
             switch (command.node.tag) {
                 .text => {
@@ -84,7 +84,7 @@ pub fn main() !void {
                         &s.writer.interface,
                         .{ .x = ui.x, .y = ui.y, .width = ui.width, .height = ui.height },
                     );
-                    try s.writer.interface.writeAll("\x1b[0m");
+                    try c.print(E.GOTO ++ "({},{})({},{})", .{ i * 1, i * 1, ui.y, ui.x, ui.width, ui.height });
                 },
             }
         }

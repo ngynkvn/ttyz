@@ -118,8 +118,8 @@ pub const Context = struct {
             .top_to_bottom => { // height axis
                 if (pn.layout.sizing.height == .fixed) return;
                 cn.ui.height += childGap;
-                pn.ui.width = @max(pn.ui.width, cn.ui.width);
                 pn.ui.height += cn.ui.height;
+                pn.ui.width = @max(pn.ui.width, cn.ui.width);
             },
         }
         self.nodes.set(parent_idx, pn);
@@ -241,12 +241,16 @@ const SizingVariant = union(enum) {
 
 const Padding = struct {
     top: u16 = 0,
+    right: u16 = 0,
     bottom: u16 = 0,
     left: u16 = 0,
-    right: u16 = 0,
+
+    pub fn From(top: u16, right: u16, bottom: u16, left: u16) Padding {
+        return .{ .top = top, .right = right, .bottom = bottom, .left = left };
+    }
 
     pub fn All(value: u16) Padding {
-        return .{ .top = value, .bottom = value, .left = value, .right = value };
+        return .{ .top = value, .right = value, .bottom = value, .left = value };
     }
 };
 

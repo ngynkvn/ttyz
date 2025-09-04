@@ -10,7 +10,7 @@ pub const Image = struct {
         self.payload = path;
     }
 
-    pub fn writePreamble(self: *Image, w: *std.io.Writer) !void {
+    pub fn writePreamble(self: *Image, w: *std.Io.Writer) !void {
         try w.writeAll(.{@as(u8, cc.esc)} ++ "_G");
         const pfields = @typeInfo(@FieldType(Image, "params")).@"struct".fields;
         inline for (pfields) |field| {
@@ -22,12 +22,12 @@ pub const Image = struct {
         try w.writeByte(';');
     }
 
-    pub fn writePayload(self: *Image, w: *std.io.Writer) !void {
+    pub fn writePayload(self: *Image, w: *std.Io.Writer) !void {
         try w.printBase64(self.payload);
         try w.writeAll(.{@as(u8, cc.esc)} ++ "\\");
     }
 
-    pub fn write(self: *Image, w: *std.io.Writer) !void {
+    pub fn write(self: *Image, w: *std.Io.Writer) !void {
         try self.writePreamble(w);
         try self.writePayload(w);
         try w.flush();

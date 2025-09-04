@@ -6,18 +6,19 @@ const comptimePrint = std.fmt.comptimePrint;
 
 pub const Colorz = @This();
 
-inner: *std.io.Writer,
-pub fn wrap(impl: *std.io.Writer) Colorz {
+inner: *std.Io.Writer,
+pub fn wrap(impl: *std.Io.Writer) Colorz {
     return .{ .inner = impl };
 }
-pub fn writer(self: *Colorz) std.io.Writer {
+pub fn writer(self: *Colorz) std.Io.Writer {
     return self.inner;
 }
 pub fn print(self: *Colorz, comptime fmt: []const u8, args: anytype) !void {
     try self.inner.print(parseFmt(fmt), args);
 }
 
-const CommandCodes = std.StaticStringMap([]const u8).initComptime(.{
+// dot codes are used to set the color of the text
+const DotCodes = std.StaticStringMap([]const u8).initComptime(.{
     .{ ".black", "\x1b[30m" },        .{ ".red", "\x1b[31m" },
     .{ ".green", "\x1b[32m" },        .{ ".yellow", "\x1b[33m" },
     .{ ".blue", "\x1b[34m" },         .{ ".magenta", "\x1b[35m" },
@@ -30,6 +31,7 @@ const CommandCodes = std.StaticStringMap([]const u8).initComptime(.{
     .{ ".reset", "\x1b[0m" },
 });
 
+// bang codes are used to set the cursor position
 const BangCodes = std.StaticStringMap([]const u8).initComptime(.{
     .{ "!H", "\x1b[H" },
     .{ "!CI", esc.E.CURSOR_INVISIBLE },
@@ -53,6 +55,7 @@ pub fn parseFmt(comptime fmt: []const u8) []const u8 {
                 .start => {
                     switch (fmt[i]) {
                         '[' => {
+                            i += 1;
                             continue :state .enter_bracket;
                         },
                         else => {
@@ -61,26 +64,25 @@ pub fn parseFmt(comptime fmt: []const u8) []const u8 {
                     }
                 },
                 .enter_bracket => {
-                    i += 1;
                     const code = until(']', fmt[i..]);
-                    const ansi_seq = CommandCodes.get(code);
-                    if (ansi_seq) |aseq| {
-                        literal = literal ++ aseq;
-                        i += code.len + 1;
-                        continue :state .exit;
-                    }
                     switch (code[0]) {
-                        'G' => {
-                            const sep = std.mem.indexOfScalar(u8, code, ';') orelse @compileError("Invalid row or col, could not find `;`. " ++ code[2..]);
-                            const row = std.fmt.parseInt(usize, code[1..sep], 10) catch @compileError("Invalid row: " ++ code[1..sep] ++ " is not parseable");
-                            const col = std.fmt.parseInt(usize, code[sep + 1 ..], 10) catch @compileError("Invalid col: " ++ code[sep + 1 ..] ++ " is not parseable");
-                            literal = literal ++ comptimePrint(esc.E.GOTO, .{ row, col });
+                        '.' => {
+                            const dot_seq = DotCodes.get(code) orelse @compileError("|." ++ code ++ "| is not a valid dot code");
+                            literal = literal ++ dot_seq;
                             i += code.len + 1;
                             continue :state .exit;
                         },
                         '!' => {
                             const bang_seq = BangCodes.get(code) orelse @compileError("|!" ++ code ++ "| is not a valid bang code");
                             literal = literal ++ bang_seq;
+                            i += code.len + 1;
+                            continue :state .exit;
+                        },
+                        'G' => {
+                            const sep = std.mem.indexOfScalar(u8, code, ';') orelse @compileError("Invalid row or col, could not find `;`. " ++ code[2..]);
+                            const row = std.fmt.parseInt(usize, code[1..sep], 10) catch @compileError("Invalid row: " ++ code[1..sep] ++ " is not parseable");
+                            const col = std.fmt.parseInt(usize, code[sep + 1 ..], 10) catch @compileError("Invalid col: " ++ code[sep + 1 ..] ++ " is not parseable");
+                            literal = literal ++ comptimePrint(esc.E.GOTO, .{ row, col });
                             i += code.len + 1;
                             continue :state .exit;
                         },

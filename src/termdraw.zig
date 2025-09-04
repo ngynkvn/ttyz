@@ -18,7 +18,7 @@ pub fn init(width: usize, height: usize) !TermDraw {
 }
 
 const BoxOptions = struct { x: u16, y: u16, width: u16, height: u16 };
-pub fn box(w: *std.io.Writer, o: BoxOptions) !void {
+pub fn box(w: *std.Io.Writer, o: BoxOptions) !void {
     try w.print(E.GOTO, .{ o.y, o.x });
     try w.writeAll(dr);
     _ = try w.writeSplat(&.{horiz}, o.width -| 1);
@@ -36,13 +36,13 @@ pub fn box(w: *std.io.Writer, o: BoxOptions) !void {
 }
 
 const HLineOptions = struct { x: u16, y: u16, width: u16 };
-pub fn hline(w: *std.io.Writer, o: HLineOptions) !void {
+pub fn hline(w: *std.Io.Writer, o: HLineOptions) !void {
     try w.print(E.GOTO, .{ o.y, o.x });
     _ = try w.writeSplat(&.{horiz}, o.width);
 }
 
 const VLineOptions = struct { x: u16, y: u16, height: u16 };
-pub fn vline(w: *std.io.Writer, o: VLineOptions) !void {
+pub fn vline(w: *std.Io.Writer, o: VLineOptions) !void {
     try w.print(E.GOTO, .{ o.y, o.x });
     for (0..o.height) |i| {
         try w.print(E.GOTO, .{ o.y + i, o.x });

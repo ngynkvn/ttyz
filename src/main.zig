@@ -4,10 +4,32 @@ const builtin = std.builtin;
 const termdraw = ttyz.termdraw;
 const E = ttyz.E;
 const layout = ttyz.layout;
+const Element = layout.Element;
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
 var arena = std.heap.ArenaAllocator.init(gpa.allocator());
 const allocator = arena.allocator();
+
+const Root = struct {
+    pub const props = layout.NodeProps{ .id = 1, .layout_direction = .left_to_right, .sizing = .As(.fit, .fit), .padding = .From(1, 3, 1, 3) };
+    pub fn render(ctx: *layout.Context) void {
+        Element.from(Section).render(ctx);
+        Element.from(Section2).render(ctx);
+    }
+    const Section = struct {
+        pub const props = layout.NodeProps{ .id = 2, .sizing = .As(.Fixed(20), .Fixed(3)), .background_color = .{ 43, 255, 51, 255 } };
+        pub fn render(ctx: *layout.Context) void {
+            ctx.Text("Section1");
+        }
+    };
+    const Section2 = struct {
+        pub const props = layout.NodeProps{ .id = 3, .sizing = .As(.Fixed(10), .Fixed(6)), .background_color = .{ 43, 255, 51, 255 } };
+        pub fn render(ctx: *layout.Context) void {
+            ctx.Text("Section2");
+        }
+    };
+};
+
 pub fn main() !void {
     defer _ = gpa.deinit();
     defer arena.deinit();
@@ -47,48 +69,22 @@ pub fn main() !void {
     var clr = ttyz.colorz.wrap(&s.writer.interface);
 
     while (s.running) {
-        _ = L.begin();
-
-        L.OpenElement(.{
-            .id = 1,
-            .layoutDirection = .left_to_right,
-            .sizing = .As(.fit, .fit),
-            .padding = .From(0, 1, 0, 1),
-        });
-        {
-            L.OpenElement(.{
-                .id = 2,
-                .sizing = .As(.Fixed(20), .Fixed(5)),
-                .backgroundColor = .{ 43, 255, 51, 255 },
-            });
-            // L.Text("Hello, world2");
-            L.CloseElement();
-
-            L.OpenElement(.{
-                .id = 3,
-                .sizing = .As(.Fixed(20), .Fixed(10)),
-                .backgroundColor = .{ 43, 255, 51, 255 },
-            });
-            // L.Text("Hello, world3");
-            L.CloseElement();
-        }
-        L.CloseElement();
+        const renderCommands = try L.render(Root);
+        defer allocator.free(renderCommands);
 
         try s.clearScreen();
         try s.home();
-        const renderCommands = try L.end();
-        defer allocator.free(renderCommands);
-
         for (renderCommands) |command| {
             const ui = command.node.ui;
             switch (command.node.tag) {
                 .text => {
-                    try s.print(E.GOTO ++ "{s}\n", .{ ui.y, ui.x, command.data });
+                    std.log.info("Rendering text: {s}", .{command.node.text.?});
+                    try s.print(E.GOTO ++ "{s}\n", .{ ui.y, ui.x, command.node.text.? });
                 },
                 .box => {
                     try termdraw.box(
                         &s.writer.interface,
-                        .{ .x = ui.x, .y = ui.y, .width = ui.width, .height = ui.height },
+                        .{ .x = ui.x, .y = ui.y, .width = ui.width, .height = ui.height, .background_color = command.node.style.background_color },
                     );
                     try clr.print(E.GOTO ++ "@[.green]({},{})({},{})@[.reset]", .{ ui.y, ui.x, ui.y, ui.x, ui.width, ui.height });
                 },
@@ -112,11 +108,12 @@ pub fn main() !void {
                 },
             }
         }
-        const log_height = 8;
+        const log_height = 20;
         try s.goto(s.height - log_height, 0);
         try s.print("Log\n\r", .{});
         const buf = logWriter.written();
         var log_lines = std.mem.splitBackwardsScalar(u8, buf, '\n');
+        _ = logWriter.writer.consumeAll();
         for (0..log_height) |i| {
             const line = log_lines.next() orelse break;
             try s.print(E.GOTO ++ "{s}", .{ s.height - i, 0, line });

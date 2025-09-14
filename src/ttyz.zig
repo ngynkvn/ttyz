@@ -1,4 +1,5 @@
 const std = @import("std");
+const assert = std.debug.assert;
 
 const posix = std.posix;
 const system = posix.system;
@@ -28,12 +29,11 @@ pub const Screen = struct {
     width: u16,
     height: u16,
     buffer: [4096]u8,
-    input_buffer: [32]u8,
     last_read: []u8,
     lock: std.Thread.Mutex,
     writer: std.fs.File.Writer,
     event_buffer: [32]Event,
-    event_queue: std.ArrayList(Event),
+    event_queue: std.Deque(Event),
     io_thread: ?std.Thread,
     running: bool,
     pub const Error = std.posix.WriteError;
@@ -92,10 +92,9 @@ pub const Screen = struct {
             .buffer = std.mem.zeroes([4096]u8),
             .writer = tty.writer(&self.buffer),
             // input
-            .input_buffer = std.mem.zeroes([32]u8),
             .io_thread = null,
             .event_buffer = undefined,
-            .event_queue = std.ArrayList(Event).initBuffer(&self.event_buffer),
+            .event_queue = .initBuffer(&self.event_buffer),
         };
         const ws = try self.querySize();
         self.width = ws.col;
@@ -129,8 +128,7 @@ pub const Screen = struct {
         fn handleSignals(sig: c_int) callconv(.c) void {
             switch (@as(Signal, @enumFromInt(sig))) {
                 .WINCH => {
-                    std.log.info("window resized", .{});
-                    @atomicStore(bool, &Signals.WINCH, true, .monotonic);
+                    @atomicStore(bool, &Signals.WINCH, true, .seq_cst);
                 },
                 else => {
                     std.log.err("received unexpected signal: {d}", .{sig});
@@ -153,23 +151,29 @@ pub const Screen = struct {
     }
 
     pub fn ioLoop(self: *Screen) !void {
+        var input_buffer = std.mem.zeroes([32]u8);
+        var reader = self.tty.readerStreaming(&input_buffer);
         while (self.running) {
             if (Signals.WINCH) {
                 const ws = try self.querySize();
+                std.log.info("window resized: {[row]}x{[col]}; {[xpixel]}x{[ypixel]}", ws);
                 self.width = ws.col;
                 self.height = ws.row;
-                @atomicStore(bool, &Signals.WINCH, false, .monotonic);
+                @atomicStore(bool, &Signals.WINCH, false, .seq_cst);
             }
-            const n = self.read(&self.input_buffer) catch continue;
-            self.last_read = self.input_buffer[0..n];
-            const ev = Parser.collectEvents(self.input_buffer[0..n]);
-            if (ev) |e| self.event_queue.appendBounded(e) catch {};
+            const ev = Parser.collectEvents(&reader.interface) catch |e| {
+                switch (e) {
+                    error.UnknownEvent => {},
+                    else => {},
+                }
+                continue;
+            };
+            self.event_queue.pushBackBounded(ev) catch {};
         }
     }
 
     pub fn pollEvent(self: *Screen) ?Event {
-        if (self.event_queue.items.len == 0) return null;
-        return self.event_queue.orderedRemove(0);
+        return self.event_queue.popFront();
     }
 
     /// Move cursor to (x, y) (column, row)
@@ -268,81 +272,50 @@ pub const Event = union(enum) {
             };
         }
     };
+    pub const MouseButton = enum { left, middle, right, unknown };
+    pub const MouseButtonState = enum { pressed, released, unknown };
     pub const CursorPos = struct { row: usize, col: usize };
+    pub const Mouse = struct { button: MouseButton, row: usize, col: usize, button_state: MouseButtonState };
     key: Key,
     cursor_pos: CursorPos,
+    mouse: Mouse,
     interrupt: void,
 };
 
 const Parser = struct {
-    buf: []u8,
-    i: usize,
-    fn init(buf: []u8) Parser {
-        return .{ .buf = buf, .i = 0 };
-    }
-    fn isEnd(self: *Parser) bool {
-        return self.i >= self.buf.len;
-    }
-    fn next(self: *Parser) u8 {
-        if (self.isEnd()) return 0;
-        self.advance();
-        return self.buf[self.i - 1];
-    }
-    fn remaining(self: *Parser) usize {
-        if (self.isEnd()) return 0;
-        return self.buf.len - self.i;
-    }
-    fn advance(self: *Parser) void {
-        self.i += 1;
-    }
-    fn peek(self: *Parser) u8 {
-        return self.buf[self.i];
-    }
-    fn expect(self: *Parser, c: u8) ?void {
-        if (self.isEnd() or self.peek() != c) return null;
-        self.advance();
-    }
-
     const ParseState = enum { start, esc, csi, csi_num };
-    pub fn collectEvents(buf: []u8) ?Event {
-        var p = Parser.init(buf);
-        var event: ?Event = null;
+    pub fn collectEvents(r: *std.Io.Reader) !Event {
+        try r.fillMore();
+        defer r.tossBuffered();
         state: switch (ParseState.start) {
             .start => {
-                switch (p.next()) {
-                    'a'...'z', 'A'...'Z', '0'...'9' => |c| event = .{ .key = @enumFromInt(c) },
-                    3 => event = .interrupt,
+                return switch (try r.takeByte()) {
+                    'a'...'z', 'A'...'Z', '0'...'9' => |c| .{ .key = @enumFromInt(c) },
+                    3 => .interrupt,
                     cc.esc => continue :state .esc,
                     else => break :state,
-                }
+                };
             },
             .esc => {
-                switch (p.next()) {
+                return switch (try r.takeByte()) {
                     '[' => continue :state .csi,
                     else => break :state,
-                }
+                };
             },
             .csi => {
-                switch (p.next()) {
-                    'A', 'B', 'C', 'D' => |c| event = .{ .key = .arrow(c) },
+                return switch (try r.peekByte()) {
+                    'A', 'B', 'C', 'D' => .{ .key = .arrow(try r.takeByte()) },
                     '0'...'9' => continue :state .csi_num,
-                    '<' => event = parseSgrMouse(p.buf[p.i..]),
+                    '<' => parseSgrMouse(r) catch error.UnknownEvent,
                     else => break :state,
-                }
+                };
             },
             .csi_num => {
-                const s = p.i - 1;
-                const last_byte = p.buf[p.buf.len - 1];
-                switch (last_byte) {
-                    'R' => event = parseCursorPos(p.buf[s .. p.buf.len - 1]),
-                    else => {
-                        std.log.warn("unexpected last byte: {c}; {f}", .{ last_byte, std.ascii.hexEscape(p.buf, .lower) });
-                        break :state;
-                    },
-                }
+                const cursor_pos = try r.peekDelimiterExclusive('R');
+                return parseCursorPos(cursor_pos) orelse error.UnknownEvent;
             },
         }
-        return event;
+        return error.UnknownEvent;
     }
 
     pub fn parseCursorPos(buf: []u8) ?Event {
@@ -351,13 +324,31 @@ const Parser = struct {
         const col = std.fmt.parseInt(u16, buf[sep + 1 ..], 10) catch return null;
         return .{ .cursor_pos = .{ .row = row, .col = col } };
     }
-    pub fn parseSgrMouse(buf: []u8) ?Event {
-        std.log.info("parseSgrMouse: {s}", .{buf});
-        return null;
-        // const sep = std.mem.indexOf(u8, buf, ";") orelse return null;
-        // const row = std.fmt.parseInt(u16, buf[0..sep], 10) catch return null;
-        // const col = std.fmt.parseInt(u16, buf[sep + 1 ..], 10) catch return null;
-        // return .{ .cursor_pos = .{ .row = row, .col = col } };
+
+    pub fn parseSgrMouse(r: *std.Io.Reader) !Event {
+        assert(try r.takeByte() == '<');
+        const Pbutton = try r.takeDelimiter(';') orelse return error.UnknownEvent;
+        const button: Event.MouseButton = switch (Pbutton[0]) {
+            '0' => .left,
+            '1' => .middle,
+            '2' => .right,
+            else => .unknown,
+        };
+
+        const Pcol = try r.takeDelimiter(';') orelse return error.UnknownEvent;
+        const col = std.fmt.parseInt(u16, Pcol, 10) catch return error.UnknownEvent;
+
+        const Prow_state = try r.peekGreedy(1);
+        const row = std.fmt.parseInt(u16, Prow_state[0 .. Prow_state.len - 1], 10) catch return error.UnknownEvent;
+
+        const Pbutton_state = Prow_state[Prow_state.len - 1];
+        const button_state: Event.MouseButtonState = switch (Pbutton_state) {
+            'M' => .pressed,
+            'm' => .released,
+            else => .unknown,
+        };
+
+        return .{ .mouse = .{ .button = button, .row = row, .col = col, .button_state = button_state } };
     }
 };
 
@@ -366,10 +357,6 @@ pub fn queryHandleSize(handle: std.fs.File.Handle) !posix.winsize {
     const result = system.ioctl(handle, posix.T.IOCGWINSZ, @intFromPtr(&ws));
     if (posix.errno(result) != .SUCCESS) return error.IoctlReturnedNonZero;
     return ws;
-}
-
-pub fn _cast(T: type, value: anytype) T {
-    return std.math.lossyCast(T, value);
 }
 
 pub const panic = std.debug.FullPanic(panicTty);

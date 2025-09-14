@@ -1,6 +1,7 @@
 const std = @import("std");
 const ttyz = @import("ttyz.zig");
-const _cast = ttyz._cast;
+const math = std.math;
+const lossyCast = math.lossyCast;
 
 const RenderCommand = struct {
     node: Node,
@@ -37,10 +38,13 @@ pub const Context = struct {
                     var child, const ci = c;
                     child.ui.x += root.ui.x + left_offset;
                     child.ui.y += root.ui.y + top_offset;
-                    if (root.layout.layout_direction == .left_to_right) {
-                        left_offset += child.layout.padding.left + child.ui.width;
-                    } else {
-                        top_offset += child.layout.padding.top + child.ui.height;
+                    switch (root.layout.layout_direction) {
+                        .left_right => {
+                            left_offset += child.layout.padding.left + child.ui.width;
+                        },
+                        .top_down => {
+                            top_offset += child.layout.padding.top + child.ui.height;
+                        },
                     }
                     self.nodes.set(ci, child);
                 }
@@ -112,13 +116,13 @@ pub const Context = struct {
         const child_gap: u16 = pn.layout.child_gap * @as(u16, @intCast(children_count - 1));
 
         switch (pn.layout.layout_direction) {
-            .left_to_right => { // width axis
+            .left_right => { // width axis
                 cn.ui.width += child_gap;
                 if (pn.layout.sizing.width == .fixed) return;
                 pn.ui.width += cn.ui.width;
                 pn.ui.height = @max(pn.ui.height, cn.ui.y + cn.ui.height);
             },
-            .top_to_bottom => { // height axis
+            .top_down => { // height axis
                 cn.ui.height += child_gap;
                 if (pn.layout.sizing.height == .fixed) return;
                 pn.ui.height += cn.ui.height;
@@ -169,7 +173,7 @@ pub const NodeProps = struct {
     /// Controls how child elements are aligned on each axis.
     child_alignment: ChildAlignment = .{ .x = .left, .y = .start },
     /// Controls the direction in which child elements will be automatically laid out.
-    layout_direction: LayoutDirection = .top_to_bottom,
+    layout_direction: LayoutDirection = .top_down,
     /// Controls the background color of this element.
     background_color: ?[4]u8 = null,
     /// Controls the text of this element.
@@ -202,11 +206,11 @@ pub const UIElement = struct {
         var ui = UIElement{ .x = 1, .y = 1, .width = 0, .height = 0 };
         const layout = node.layout;
         switch (layout.sizing.height) {
-            .fixed => ui.height = _cast(u16, layout.sizing.height.fixed),
+            .fixed => ui.height = layout.sizing.height.fixed,
             else => {},
         }
         switch (layout.sizing.width) {
-            .fixed => ui.width = _cast(u16, layout.sizing.width.fixed),
+            .fixed => ui.width = layout.sizing.width.fixed,
             else => {},
         }
         return ui;
@@ -223,7 +227,7 @@ const LayoutConfig = struct {
     /// Controls how child elements are aligned on each axis.
     child_alignment: ChildAlignment = .{ .x = .left, .y = .start },
     /// Controls the direction in which child elements will be automatically laid out.
-    layout_direction: LayoutDirection = .top_to_bottom,
+    layout_direction: LayoutDirection = .top_down,
 };
 
 const Style = struct {
@@ -246,7 +250,7 @@ const SizingVariant = union(enum) {
     /// Size of this element as a minimum and maximum percentage of its parent's size.
     min_max: struct { min: f32, max: f32 },
     /// Size of this element as a fixed number of pixels.
-    fixed: u32,
+    fixed: u16,
     /// Size of this element as a fit to its parent's size.
     fit: void,
 
@@ -256,7 +260,7 @@ const SizingVariant = union(enum) {
     pub fn MinMax(min: f32, max: f32) SizingVariant {
         return .{ .min_max = .{ .min = min, .max = max } };
     }
-    pub fn Fixed(value: u32) SizingVariant {
+    pub fn Fixed(value: u16) SizingVariant {
         return .{ .fixed = value };
     }
     pub fn Fit() SizingVariant {
@@ -284,7 +288,7 @@ const ChildAlignment = struct {
     y: enum { start, center, end },
 };
 
-const LayoutDirection = enum { left_to_right, top_to_bottom };
+const LayoutDirection = enum { left_right, top_down };
 
 const panic = std.debug.panic;
 

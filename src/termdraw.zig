@@ -17,26 +17,19 @@ pub fn init(width: usize, height: usize) !TermDraw {
     return .{ .width = width, .height = height };
 }
 
-const BoxOptions = struct { x: u16, y: u16, width: u16, height: u16, background_color: ?[4]u8 = null };
+const BoxOptions = struct { x: u16, y: u16, width: u16, height: u16, color: ?[4]u8 = null };
 pub fn box(w: *std.Io.Writer, o: BoxOptions) !void {
+    if (o.color) |color| try w.print(E.SET_TRUCOLOR, .{ color[0], color[1], color[2] });
     try w.print(E.GOTO, .{ o.y, o.x });
-    if (o.background_color) |color| {
-        try w.print(E.SET_TRUCOLOR, .{ color[0], color[1], color[2] });
-    }
     try w.writeAll(dr);
     _ = try w.writeSplat(&.{horiz}, o.width -| 2);
     try w.writeAll(dl);
-    for (1..o.height) |i| {
-        try w.print(E.GOTO, .{ o.y + i, o.x });
-        try w.writeAll(vert);
-        try w.print(E.GOTO, .{ o.y + i, o.x + o.width -| 1 });
-        try w.writeAll(vert);
+    for (1..o.height -| 1) |i| {
+        try w.print(E.GOTO ++ vert ++ E.GOTO ++ vert, .{ o.y + i, o.x, o.y + i, o.x + o.width -| 1 });
     }
-    try w.print(E.GOTO, .{ o.y + o.height -| 1, o.x });
-    try w.writeAll(ur);
+    try w.print(E.GOTO ++ ur, .{ o.y + o.height -| 1, o.x });
     _ = try w.writeSplat(&.{horiz}, o.width -| 2);
-    try w.writeAll(ul);
-    try w.print(E.RESET_COLORS, .{});
+    try w.writeAll(ul ++ E.RESET_COLORS);
 }
 
 const HLineOptions = struct { x: u16, y: u16, width: u16 };
@@ -48,10 +41,7 @@ pub fn hline(w: *std.Io.Writer, o: HLineOptions) !void {
 const VLineOptions = struct { x: u16, y: u16, height: u16 };
 pub fn vline(w: *std.Io.Writer, o: VLineOptions) !void {
     try w.print(E.GOTO, .{ o.y, o.x });
-    for (0..o.height) |i| {
-        try w.print(E.GOTO, .{ o.y + i, o.x });
-        try w.writeAll(vert);
-    }
+    try w.writeSplat(&.{ vert, '\r', std.ascii.control_code.bs }, o.height);
 }
 
 const BoxChars = struct {

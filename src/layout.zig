@@ -11,44 +11,58 @@ pub const Context = struct {
     allocator: std.mem.Allocator,
     screen: *ttyz.Screen,
     nodes: std.MultiArrayList(Node),
-    current_node: ?Node.Index = null,
+    childlist: std.ArrayList([32]Node.Index),
+    current_node: Node.Index = .nil,
 
     pub fn begin(self: *Context) *Context {
-        self.current_node = null;
+        self.current_node = .nil;
         self.nodes.shrinkRetainingCapacity(0);
+        self.childlist.shrinkRetainingCapacity(0);
         return self;
     }
 
     pub fn end(self: *Context) ![]const RenderCommand {
         var renderCommands = std.ArrayList(RenderCommand).empty;
-        var idx_stack = std.ArrayList(?Node.Index).empty;
-        try idx_stack.append(self.allocator, null);
-        while (idx_stack.pop()) |i| {
-            var roots = self.nodeIterator();
-            while (roots.nextWhereParent(i)) |r| {
-                const root, const ri = r;
-                var left_offset = root.layout.padding.left;
-                var top_offset = root.layout.padding.top;
-                var children = self.nodeIterator();
-                const rc: RenderCommand = .{ .node = root };
-                try renderCommands.append(self.allocator, rc);
+        var parent_child: [16][16:.nil]Node.Index = undefined;
+        @memset(&parent_child, @splat(.nil));
+        // create a mapping of parent to children
+        var parent_child_count: [16]usize = std.mem.zeroes([16]usize);
+        for (1.., self.nodes.items(.parent)[1..]) |child, par| {
+            // the index of the parent for current node
+            const node_idx: Node.Index = par;
+            std.log.debug("parent: {d}, child: {d}", .{ node_idx.index(), child });
+            const i = node_idx.index();
+            parent_child[i][parent_child_count[i]] = .from(child);
+            parent_child_count[i] += 1;
+        }
 
-                // Adjust children's position based on the root's position and padding
-                while (children.nextWhereParent(ri)) |c| {
-                    var child, const ci = c;
-                    child.ui.x += root.ui.x + left_offset;
-                    child.ui.y += root.ui.y + top_offset;
-                    switch (root.layout.layout_direction) {
-                        .left_right => {
-                            left_offset += child.layout.padding.left + child.ui.width;
-                        },
-                        .top_down => {
-                            top_offset += child.layout.padding.top + child.ui.height;
-                        },
-                    }
-                    self.nodes.set(ci, child);
+        var idx_stack = std.ArrayList(Node.Index).empty;
+        try idx_stack.append(self.allocator, .nil);
+        while (idx_stack.pop()) |top| {
+            const i = top.index();
+            const root = self.nodes.get(i);
+            var left_offset = root.layout.padding.left;
+            var top_offset = root.layout.padding.top;
+            const rc: RenderCommand = .{ .node = root };
+            std.log.debug("root: {}", .{rc});
+            try renderCommands.append(self.allocator, rc);
+            const len = parent_child_count[i];
+            const children = parent_child[i][0..len];
+            for (children) |childi| {
+                const c = childi.index();
+                var child = self.nodes.get(c);
+                child.ui.x += root.ui.x + left_offset;
+                child.ui.y += root.ui.y + top_offset;
+                switch (root.layout.layout_direction) {
+                    .left_right => {
+                        left_offset += child.layout.padding.left + child.ui.width;
+                    },
+                    .top_down => {
+                        top_offset += child.layout.padding.top + child.ui.height;
+                    },
                 }
-                try idx_stack.append(self.allocator, ri);
+                self.nodes.set(c, child);
+                try idx_stack.append(self.allocator, .from(c));
             }
         }
         return renderCommands.toOwnedSlice(self.allocator);
@@ -92,48 +106,49 @@ pub const Context = struct {
                 .child_alignment = np.child_alignment,
                 .layout_direction = np.layout_direction,
             },
-            .style = .{ .background_color = np.background_color },
+            .style = .{ .color = np.color },
             .ui = UIElement.init(node),
             .parent = current_node,
         };
         const node_idx = self.nodes.addOne(self.allocator) catch return;
         self.nodes.set(node_idx, node);
-        self.current_node = node_idx;
+        self.current_node = .from(node_idx);
     }
 
     pub fn CloseElement(self: *Context) void {
-        const curr_idx = self.current_node orelse return;
-        var cn = self.nodes.get(curr_idx);
+        const curr_idx = self.current_node;
+        var cn = self.nodes.get(curr_idx.index());
         cn.ui.height += cn.layout.padding.top + cn.layout.padding.bottom;
         cn.ui.width += cn.layout.padding.left + cn.layout.padding.right;
-        self.nodes.set(curr_idx, cn);
 
         self.current_node = cn.parent;
-        const parent_idx = cn.parent orelse return;
+        // if (self.current_node == .nil) return;
+        const parent_idx = cn.parent;
 
-        var pn = self.nodes.get(parent_idx);
+        var pn = self.nodes.get(parent_idx.index());
         const children_count = self.countChildren(parent_idx);
         const child_gap: u16 = pn.layout.child_gap * @as(u16, @intCast(children_count - 1));
 
         switch (pn.layout.layout_direction) {
             .left_right => { // width axis
                 cn.ui.width += child_gap;
+                pn.ui.height = @max(pn.ui.height, cn.ui.y + cn.ui.height + 1);
                 if (pn.layout.sizing.width == .fixed) return;
-                pn.ui.width += cn.ui.width;
-                pn.ui.height = @max(pn.ui.height, cn.ui.y + cn.ui.height);
+                pn.ui.width += cn.ui.width + 1;
             },
             .top_down => { // height axis
                 cn.ui.height += child_gap;
+                pn.ui.width = @max(pn.ui.width, cn.ui.x + cn.ui.width + 1);
                 if (pn.layout.sizing.height == .fixed) return;
-                pn.ui.height += cn.ui.height;
-                pn.ui.width = @max(pn.ui.width, cn.ui.x + cn.ui.width);
+                pn.ui.height += cn.ui.height + 1;
             },
         }
-        self.nodes.set(parent_idx, pn);
+        self.nodes.set(curr_idx.index(), cn);
+        self.nodes.set(parent_idx.index(), pn);
     }
 
     pub fn countChildren(self: *Context, parent_idx: Node.Index) usize {
-        return std.mem.count(?usize, self.nodes.items(.parent), &.{parent_idx});
+        return std.mem.count(Node.Index, self.nodes.items(.parent), &.{parent_idx});
     }
 
     pub fn Text(self: *Context, text: []const u8) void {
@@ -149,12 +164,15 @@ pub const Context = struct {
             .screen = screen,
             .allocator = allocator,
             .nodes = std.MultiArrayList(Node).empty,
+            .childlist = std.ArrayList([32]Node.Index).empty,
         };
     }
 
     pub fn render(self: *Context, root: type) ![]const RenderCommand {
         _ = self.begin();
-        Element.from(root).render(self);
+        self.OpenElement(root.props);
+        root.render(self);
+        self.CloseElement();
         return self.end();
     }
 };
@@ -174,8 +192,8 @@ pub const NodeProps = struct {
     child_alignment: ChildAlignment = .{ .x = .left, .y = .start },
     /// Controls the direction in which child elements will be automatically laid out.
     layout_direction: LayoutDirection = .top_down,
-    /// Controls the background color of this element.
-    background_color: ?[4]u8 = null,
+    /// Controls the color of this element.
+    color: ?[4]u8 = null,
     /// Controls the text of this element.
     text: ?[]const u8 = null,
 };
@@ -183,13 +201,22 @@ pub const NodeProps = struct {
 pub const Node = struct {
     id: ?u8 = null,
     tag: Tag = .box,
-    parent: ?Node.Index = null,
+    parent: Node.Index = .nil,
     ui: UIElement,
     style: Style,
     layout: LayoutConfig,
     text: ?[]const u8 = null,
     const Tag = enum { text, box };
-    const Index = usize;
+    const Index = enum(u8) {
+        nil = 0,
+        _,
+        pub fn from(i: usize) Index {
+            return @enumFromInt(i);
+        }
+        pub fn index(self: Index) usize {
+            return @intFromEnum(self);
+        }
+    };
     const default = Node{
         .style = .default,
         .layout = .default,
@@ -232,7 +259,7 @@ const LayoutConfig = struct {
 
 const Style = struct {
     /// Controls the background color of this element.
-    background_color: ?[4]u8 = null,
+    color: ?[4]u8 = null,
 };
 
 const Sizing = struct {

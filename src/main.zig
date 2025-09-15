@@ -11,21 +11,27 @@ var arena = std.heap.ArenaAllocator.init(gpa.allocator());
 const allocator = arena.allocator();
 
 const Root = struct {
-    pub const props = layout.NodeProps{ .id = 1, .layout_direction = .left_right, .sizing = .As(.fit, .fit), .padding = .From(1, 3, 1, 3) };
+    pub var props = layout.NodeProps{ .id = 1, .layout_direction = .left_right, .sizing = .As(.fit, .fit), .padding = .From(0, 0, 0, 0) };
     pub fn render(ctx: *layout.Context) void {
-        Element.from(Section).render(ctx);
-        Element.from(Section2).render(ctx);
+        ctx.OpenElement(Section.props);
+        Section.render(ctx);
+        ctx.CloseElement();
+        ctx.OpenElement(Section2.props);
+        Section2.render(ctx);
+        ctx.CloseElement();
     }
     const Section = struct {
-        pub const props = layout.NodeProps{ .id = 2, .sizing = .As(.Fixed(20), .Fixed(3)), .background_color = .{ 43, 255, 51, 255 } };
+        pub var props = layout.NodeProps{ .id = 2, .sizing = .As(.Fixed(12), .Fixed(6)), .color = .{ 43, 255, 51, 255 } };
         pub fn render(ctx: *layout.Context) void {
-            ctx.Text("Section1");
+            _ = ctx;
+            // ctx.Text("Section1");
         }
     };
     const Section2 = struct {
-        pub const props = layout.NodeProps{ .id = 3, .sizing = .As(.Fixed(10), .Fixed(6)), .background_color = .{ 43, 255, 51, 255 } };
+        pub var props = layout.NodeProps{ .id = 3, .sizing = .As(.Fixed(6), .Fixed(8)), .color = .{ 43, 255, 51, 255 } };
         pub fn render(ctx: *layout.Context) void {
-            ctx.Text("Section2");
+            _ = ctx;
+            // ctx.Text("Section2");
         }
     };
 };
@@ -67,6 +73,7 @@ pub fn main() !void {
     var L = layout.Context.init(allocator, &s);
     defer L.deinit();
     var clr = ttyz.colorz.wrap(&s.writer.interface);
+    clr = clr;
 
     while (s.running) {
         const renderCommands = try L.render(Root);
@@ -83,9 +90,9 @@ pub fn main() !void {
                 .box => {
                     try termdraw.box(
                         &s.writer.interface,
-                        .{ .x = ui.x, .y = ui.y, .width = ui.width, .height = ui.height, .background_color = command.node.style.background_color },
+                        .{ .x = ui.x, .y = ui.y, .width = ui.width, .height = ui.height, .color = command.node.style.color },
                     );
-                    try clr.print(E.GOTO ++ "@[.green]({},{})({},{})@[.reset]", .{ ui.y, ui.x, ui.y, ui.x, ui.width, ui.height });
+                    try clr.print(E.GOTO ++ "@[.green]{s}@[.reset]", .{ s.height - 1, 0, s.textinput.items });
                 },
             }
         }
@@ -97,6 +104,43 @@ pub fn main() !void {
                     last_event = event;
                     switch (key) {
                         .q, .Q => s.running = false,
+                        .tab => {
+                            s.toggle = !s.toggle;
+                        },
+                        .@"0", .@"1", .@"2", .@"3", .@"4", .@"5", .@"6", .@"7", .@"8", .@"9", .x => |c| {
+                            s.textinput.appendBounded(@intFromEnum(c)) catch {
+                                std.log.err("failed to append to textinput_buffer", .{});
+                            };
+                        },
+                        .enter, .carriage_return => {
+                            const i = std.mem.indexOfScalar(u8, s.textinput.items, 'x') orelse {
+                                std.log.err("failed to find x in textinput", .{});
+                                continue;
+                            };
+                            const inp_w = s.textinput.items[0..i];
+                            const inp_h = s.textinput.items[i + 1 ..];
+                            const new_w = std.fmt.parseInt(u16, inp_w, 10) catch {
+                                std.log.err("failed to parse width", .{});
+                                continue;
+                            };
+                            const new_h = std.fmt.parseInt(u16, inp_h, 10) catch {
+                                std.log.err("failed to parse height", .{});
+                                continue;
+                            };
+                            switch (s.toggle) {
+                                true => {
+                                    Root.Section.props.sizing = .As(.Fixed(new_w), .Fixed(new_h));
+                                },
+                                false => {
+                                    Root.Section2.props.sizing = .As(.Fixed(new_w), .Fixed(new_h));
+                                },
+                            }
+
+                            s.textinput.shrinkRetainingCapacity(0);
+                        },
+                        .esc => {
+                            s.textinput.shrinkRetainingCapacity(0);
+                        },
                         else => {},
                     }
                 },
@@ -108,9 +152,7 @@ pub fn main() !void {
                     _ = mouse;
                     // try s.print("{}\n", .{mouse});
                 },
-                .interrupt => {
-                    s.running = false;
-                },
+                .interrupt => s.running = false,
             }
         }
         try s.flush();

@@ -1,2 +1,12 @@
 .zig-cache/
 zig-out/
+
+# Test binaries
+test_*
+!test_*.zig
+
+# Editor files
+*.swp
+*~
+.vscode/
+.idea/

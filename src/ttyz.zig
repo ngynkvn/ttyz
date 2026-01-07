@@ -10,6 +10,7 @@ pub const termdraw = @import("termdraw.zig");
 pub const layout = @import("layout.zig");
 pub const colorz = @import("colorz.zig");
 pub const E = @import("esc.zig");
+pub const BoundedQueue = @import("bounded_queue.zig").BoundedQueue;
 
 pub const CONFIG = .{
     // Disable tty's SIGINT handling,
@@ -33,8 +34,7 @@ pub const Screen = struct {
     last_read: []u8,
     lock: std.Thread.Mutex,
     writer: std.fs.File.Writer,
-    event_buffer: [32]Event,
-    event_queue: std.Deque(Event),
+    event_queue: BoundedQueue(Event, 32),
     io_thread: ?std.Thread,
     running: bool,
     // TODO: app state
@@ -98,8 +98,7 @@ pub const Screen = struct {
             .writer = tty.writer(&self.buffer),
             // input
             .io_thread = null,
-            .event_buffer = undefined,
-            .event_queue = .initBuffer(&self.event_buffer),
+            .event_queue = BoundedQueue(Event, 32).init(),
             .toggle = false,
             .textinput_buffer = std.mem.zeroes([32]u8),
             .textinput = std.ArrayList(u8).initBuffer(&self.textinput_buffer),

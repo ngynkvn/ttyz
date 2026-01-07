@@ -44,8 +44,9 @@ pub fn hline(w: *std.Io.Writer, o: HLineOptions) !void {
 
 const VLineOptions = struct { x: u16, y: u16, height: u16 };
 pub fn vline(w: *std.Io.Writer, o: VLineOptions) !void {
-    try w.print(E.GOTO, .{ o.y, o.x });
-    try w.writeSplat(&.{ vert, '\r', std.ascii.control_code.bs }, o.height);
+    for (0..o.height) |i| {
+        try w.print(E.GOTO ++ vert, .{ o.y + @as(u16, @intCast(i)), o.x });
+    }
 }
 
 pub const Chars = [_][]const u8{

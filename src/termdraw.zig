@@ -13,8 +13,6 @@
 //! try termdraw.hline(&writer, .{ .x = 0, .y = 20, .width = 40 });
 //! ```
 
-
-
 /// Terminal drawing context for managing drawing state.
 pub const TermDraw = @This();
 
@@ -197,3 +195,103 @@ const BoxChars = struct {
 
 const std = @import("std");
 const ansi = @import("ansi.zig");
+const testing = std.testing;
+
+test "TermDraw.init creates context with dimensions" {
+    const td = try TermDraw.init(80, 24);
+    try testing.expectEqual(@as(usize, 80), td.width);
+    try testing.expectEqual(@as(usize, 24), td.height);
+}
+
+test "box draws correct corner characters" {
+    var buf: [512]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buf);
+
+    try box(&writer, .{ .x = 1, .y = 1, .width = 4, .height = 3 });
+
+    const output = writer.buffered();
+    // Should contain box corner characters
+    try testing.expect(std.mem.indexOf(u8, output, "┏") != null); // dr (down-right)
+    try testing.expect(std.mem.indexOf(u8, output, "┓") != null); // dl (down-left)
+    try testing.expect(std.mem.indexOf(u8, output, "┗") != null); // ur (up-right)
+    try testing.expect(std.mem.indexOf(u8, output, "┛") != null); // ul (up-left)
+}
+
+test "box includes horizontal lines" {
+    var buf: [512]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buf);
+
+    try box(&writer, .{ .x = 1, .y = 1, .width = 5, .height = 3 });
+
+    const output = writer.buffered();
+    // Should contain horizontal line character
+    try testing.expect(std.mem.indexOf(u8, output, "━") != null);
+}
+
+test "box with color includes ANSI color codes" {
+    var buf: [512]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buf);
+
+    try box(&writer, .{ .x = 1, .y = 1, .width = 4, .height = 3, .color = .{ 255, 128, 0, 255 } });
+
+    const output = writer.buffered();
+    // Should contain RGB color escape sequence
+    try testing.expect(std.mem.indexOf(u8, output, "\x1b[38;2;") != null);
+    // Should end with reset
+    try testing.expect(std.mem.indexOf(u8, output, "\x1b[0m") != null);
+}
+
+test "hline draws horizontal line" {
+    var buf: [256]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buf);
+
+    try hline(&writer, .{ .x = 1, .y = 1, .width = 5 });
+
+    const output = writer.buffered();
+    // Should contain horizontal line characters
+    try testing.expect(std.mem.indexOf(u8, output, "━") != null);
+    // Count occurrences of horizontal line (each is 3 bytes in UTF-8)
+    var count: usize = 0;
+    var i: usize = 0;
+    while (i < output.len) {
+        if (std.mem.startsWith(u8, output[i..], "━")) {
+            count += 1;
+            i += 3;
+        } else {
+            i += 1;
+        }
+    }
+    try testing.expectEqual(@as(usize, 5), count);
+}
+
+test "vline draws vertical line" {
+    var buf: [256]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buf);
+
+    try vline(&writer, .{ .x = 1, .y = 1, .height = 3 });
+
+    const output = writer.buffered();
+    // Should contain vertical line characters
+    try testing.expect(std.mem.indexOf(u8, output, "┃") != null);
+    // Count occurrences of vertical line
+    var count: usize = 0;
+    var i: usize = 0;
+    while (i < output.len) {
+        if (std.mem.startsWith(u8, output[i..], "┃")) {
+            count += 1;
+            i += 3;
+        } else {
+            i += 1;
+        }
+    }
+    try testing.expectEqual(@as(usize, 3), count);
+}
+
+test "BoxChars.Heavy returns correct characters" {
+    try testing.expectEqualStrings("━", BoxChars.Heavy.get(.horiz));
+    try testing.expectEqualStrings("┃", BoxChars.Heavy.get(.vert));
+    try testing.expectEqualStrings("┏", BoxChars.Heavy.get(.dr));
+    try testing.expectEqualStrings("┓", BoxChars.Heavy.get(.dl));
+    try testing.expectEqualStrings("┗", BoxChars.Heavy.get(.ur));
+    try testing.expectEqualStrings("┛", BoxChars.Heavy.get(.ul));
+}

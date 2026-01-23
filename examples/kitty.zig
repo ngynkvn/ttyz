@@ -17,7 +17,7 @@ const ansi = ttyz.ansi;
 pub fn main(init: std.process.Init) !void {
     const allocator = init.arena.allocator();
 
-    var screen = try ttyz.Screen.init();
+    var screen = try ttyz.Screen.init(init.io);
     defer _ = screen.deinit() catch {};
 
     try screen.clearScreen();
@@ -126,16 +126,31 @@ pub fn main(init: std.process.Init) !void {
     try screen.print(ansi.faint ++ "Press any key to clear images and exit..." ++ ansi.reset, .{});
     try screen.flush();
 
-    // Wait for keypress
-    try screen.start();
+    // Wait for keypress (read input directly, non-blocking due to termios)
     while (screen.running) {
-        if (screen.pollEvent()) |event| {
-            switch (event) {
-                .key => break,
-                .interrupt => break,
-                else => {},
+        // Read input
+        var input_buffer: [32]u8 = undefined;
+        const rc = std.posix.system.read(screen.fd, &input_buffer, input_buffer.len);
+        if (rc > 0) {
+            const bytes_read: usize = @intCast(rc);
+            for (input_buffer[0..bytes_read]) |byte| {
+                const action = screen.input_parser.advance(byte);
+                if (screen.actionToEvent(action, byte)) |event| {
+                    switch (event) {
+                        .key => {
+                            screen.running = false;
+                            break;
+                        },
+                        .interrupt => {
+                            screen.running = false;
+                            break;
+                        },
+                        else => {},
+                    }
+                }
             }
         }
+        if (!screen.running) break;
         init.io.sleep(std.Io.Duration.fromMilliseconds(10), .awake) catch {};
     }
 

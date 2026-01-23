@@ -5,9 +5,9 @@
 const std = @import("std");
 const ttyz = @import("ttyz");
 
-pub fn main(_: std.process.Init) !void {
+pub fn main(init: std.process.Init) !void {
     // Initialize raw mode terminal
-    var screen = try ttyz.Screen.init();
+    var screen = try ttyz.Screen.init(init.io);
     defer _ = screen.deinit() catch {};
 
     // Clear screen and move to top-left

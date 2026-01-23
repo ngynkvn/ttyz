@@ -24,11 +24,10 @@ pub fn main(init: std.process.Init) !void {
         enableLogging();
     }
 
-    var s = try ttyz.Screen.init();
+    var s = try ttyz.Screen.init(init.io);
     defer _ = s.deinit() catch |e| {
         std.log.err("Error deinitializing raw mode: {s}", .{@errorName(e)});
     };
-    try s.start();
 
     var ctx = layout.Context.init(allocator);
     defer ctx.deinit();
@@ -118,6 +117,9 @@ pub fn main(init: std.process.Init) !void {
         for (commands) |cmd| {
             try cmd.render(&s);
         }
+
+        // Read input (non-blocking due to termios settings)
+        readInput(&s);
 
         while (s.pollEvent()) |event| {
             std.log.info("event: {}", .{event});
@@ -234,4 +236,22 @@ fn enableLogging() void {
 
 fn disableLogging() void {
     debug = false;
+}
+
+/// Read input from the TTY (non-blocking due to termios VMIN=0, VTIME=1)
+fn readInput(screen: *ttyz.Screen) void {
+    var input_buffer: [32]u8 = undefined;
+
+    const rc = std.posix.system.read(screen.fd, &input_buffer, input_buffer.len);
+    if (rc <= 0) return;
+
+    const bytes_read: usize = @intCast(rc);
+
+    // Process each byte through the parser
+    for (input_buffer[0..bytes_read]) |byte| {
+        const action = screen.input_parser.advance(byte);
+        if (screen.actionToEvent(action, byte)) |ev| {
+            screen.event_queue.pushBackBounded(ev) catch {};
+        }
+    }
 }

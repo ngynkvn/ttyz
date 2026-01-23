@@ -7,8 +7,8 @@ const ttyz = @import("ttyz");
 const ansi = ttyz.ansi;
 const E = ttyz.E; // Keep for format strings (SET_BG_256, SET_TRUCOLOR_BG)
 
-pub fn main(_: std.process.Init) !void {
-    var screen = try ttyz.Screen.init();
+pub fn main(init: std.process.Init) !void {
+    var screen = try ttyz.Screen.init(init.io);
     defer _ = screen.deinit() catch {};
 
     try screen.clearScreen();

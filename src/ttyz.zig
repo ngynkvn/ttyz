@@ -112,42 +112,6 @@ pub const Screen = struct {
     pub const WriteError = error{WriteFailed};
     pub const ReadError = error{ReadFailed};
 
-    /// Buffered writer interface for compatibility with existing code.
-    /// Note: Interface stores a direct pointer to Screen, avoiding self-referential issues.
-    pub const Writer = struct {
-        pub const Interface = struct {
-            pub fn write(self: *Interface, data: []const u8) WriteError!usize {
-                return self.screen.writeRaw(data);
-            }
-
-            pub fn writeAll(self: *Interface, data: []const u8) WriteError!void {
-                _ = try self.screen.writeRaw(data);
-            }
-
-            pub fn print(self: *Interface, comptime fmt: []const u8, args: anytype) WriteError!void {
-                var buf: [4096]u8 = undefined;
-                const slice = std.fmt.bufPrint(&buf, fmt, args) catch return;
-                try self.writeAll(slice);
-            }
-
-            pub fn flush(self: *Interface) WriteError!void {
-                try self.screen.flushBuffer();
-            }
-
-            screen: *Screen,
-        };
-
-        pub fn init(screen: *Screen) Writer {
-            return .{
-                .screen = screen,
-                .interface = .{ .screen = screen },
-            };
-        }
-
-        screen: *Screen,
-        interface: Interface,
-    };
-
     /// Options for `printArgs`.
     pub const WriteArgs = struct {
         /// Optional sleep duration in nanoseconds before writing.
@@ -166,6 +130,7 @@ pub const Screen = struct {
         }
     };
 
+    file: std.Io.File,
     /// The underlying TTY file descriptor.
     fd: posix.fd_t,
     /// Terminal width in columns.
@@ -193,7 +158,7 @@ pub const Screen = struct {
     /// Text input accumulator.
     textinput: std.ArrayList(u8),
     /// Buffered writer for terminal output.
-    writer: Writer,
+    writer: std.Io.File.Writer,
     /// ANSI escape sequence parser for input.
     input_parser: parser.Parser,
 
@@ -205,17 +170,16 @@ pub const Screen = struct {
     ///
     /// Explanation here: https://viewsourcecode.org/snaptoken/kilo/02.enteringScreen.html
     /// https://zig.news/lhp/want-to-create-a-tui-application-the-basics-of-uncooked-terminal-io-17gm
-    pub fn init() !Screen {
-        _ = termdraw;
-        const rc = system.open(CONFIG.TTY_PATH, .{ .ACCMODE = .RDWR }, @as(posix.mode_t, 0));
-        if (rc < 0) return error.OpenFailed;
-        const fd: posix.fd_t = @intCast(rc);
-        return try initFrom(fd);
+    pub fn init(io: std.Io) !Screen {
+        const f = try std.Io.Dir.openFileAbsolute(io, CONFIG.TTY_PATH, .{ .mode = .read_write });
+        // const rc = system.open(CONFIG.TTY_PATH, .{ .ACCMODE = .RDWR }, @as(posix.mode_t, 0));
+        return try initFrom(io, f);
     }
 
     /// Initialize a Screen from an existing TTY file descriptor.
     /// This allows using a custom TTY instead of the default `/dev/tty`.
-    pub fn initFrom(fd: posix.fd_t) !Screen {
+    pub fn initFrom(io: std.Io, f: std.Io.File) !Screen {
+        const fd = f.handle;
         tty_fd = fd;
         const orig = try posix.tcgetattr(fd);
         orig_termios = orig;
@@ -244,6 +208,7 @@ pub const Screen = struct {
 
         var self: Screen = undefined;
         self = .{
+            .file = f,
             .fd = fd,
             .running = true,
             .width = 0,
@@ -262,7 +227,7 @@ pub const Screen = struct {
             .textinput = std.ArrayList(u8).initBuffer(&self.textinput_buffer),
             .input_parser = parser.Parser.init(),
         };
-        self.writer = Writer.init(&self);
+        self.writer = f.writerStreaming(io, &.{});
 
         const ws = try self.querySize();
         self.width = ws.col;
@@ -274,10 +239,10 @@ pub const Screen = struct {
     }
 
     /// Write bytes directly to terminal (bypasses buffer).
-    fn writeRawDirect(self: *Screen, bytes: []const u8) WriteError!usize {
-        const rc = system.write(self.fd, bytes.ptr, bytes.len);
-        if (rc < 0) return error.WriteFailed;
-        return @intCast(rc);
+    fn writeRawDirect(self: *Screen, bytes: []const u8) !usize {
+        const n = try self.writer.interface.write(bytes);
+        try self.writer.flush();
+        return n;
     }
 
     /// Write bytes to internal buffer.
@@ -320,50 +285,8 @@ pub const Screen = struct {
         return posix.errno(rc);
     }
 
-    /// Start the background I/O thread for event handling.
-    /// This spawns a thread that reads input events and handles window resize signals.
-    /// Call this after `init()` to enable event polling via `pollEvent()`.
-    pub fn start(self: *Screen) !void {
-        const sa = std.posix.Sigaction{
-            .flags = std.posix.SA.RESTART,
-            .mask = std.posix.sigemptyset(),
-            .handler = .{ .handler = Signals.handleSignals },
-        };
-        std.posix.sigaction(std.posix.SIG.WINCH, &sa, null);
-        self.io_thread = std.Thread.spawn(.{}, Screen.ioLoop, .{self}) catch |e| {
-            std.log.err("error spawning main loop: {s}", .{@errorName(e)});
-            return e;
-        };
-    }
-
-    /// Internal I/O loop run by the background thread.
-    /// Reads input, parses events, and handles window resize signals.
-    fn ioLoop(self: *Screen) void {
-        var input_buffer = std.mem.zeroes([32]u8);
-        while (self.running) {
-            if (Signals.WINCH) {
-                const ws = self.querySize() catch continue;
-                std.log.info("window resized: {[row]}x{[col]}; {[xpixel]}x{[ypixel]}", ws);
-                self.width = ws.col;
-                self.height = ws.row;
-                @atomicStore(bool, &Signals.WINCH, false, .seq_cst);
-            }
-            const rc = system.read(self.fd, &input_buffer, input_buffer.len);
-            if (rc <= 0) continue;
-            const bytes_read: usize = @intCast(rc);
-
-            // Process each byte through the parser
-            for (input_buffer[0..bytes_read]) |byte| {
-                const action = self.input_parser.advance(byte);
-                if (self.actionToEvent(action, byte)) |ev| {
-                    self.event_queue.pushBackBounded(ev) catch {};
-                }
-            }
-        }
-    }
-
     /// Convert parser action to an Event, if applicable.
-    fn actionToEvent(self: *Screen, action: parser.Action, byte: u8) ?Event {
+    pub fn actionToEvent(self: *Screen, action: parser.Action, byte: u8) ?Event {
         switch (action) {
             .execute => {
                 // Handle C0 control characters
@@ -780,7 +703,7 @@ pub fn Runner(comptime T: type) type {
         /// Uses std.Io for async input handling instead of threads.
         pub fn runWithOptions(app: *T, proc: std.process.Init, options: Options) !void {
             const io = proc.io;
-            var screen = try Screen.init();
+            var screen = try Screen.init(io);
             defer _ = screen.deinit() catch {};
 
             // Set up WINCH signal handler

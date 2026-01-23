@@ -21,6 +21,8 @@ pub fn build(b: *std.Build) void {
     };
 
     const test_step = b.step("test", "Run tests");
+    const check_step = b.step("check", "Check the app");
+    check_step.dependOn(test_step);
     for (exes) |e| {
         const exe = b.addExecutable(.{
             .name = e.name,
@@ -34,6 +36,7 @@ pub fn build(b: *std.Build) void {
             }),
         });
         b.installArtifact(exe);
+        check_step.dependOn(&exe.step);
         const run_cmd = b.addRunArtifact(exe);
         run_cmd.step.dependOn(b.getInstallStep());
         const step = b.step(e.name, e.desc);
@@ -54,9 +57,6 @@ pub fn build(b: *std.Build) void {
     });
     const run_mod_tests = b.addRunArtifact(mod_tests);
     test_step.dependOn(&run_mod_tests.step);
-
-    const check_step = b.step("check", "Check the app");
-    check_step.dependOn(test_step);
 
     // Documentation
     const docs_obj = b.addObject(.{

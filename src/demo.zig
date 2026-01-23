@@ -1,0 +1,419 @@
+const std = @import("std");
+const ttyz = @import("ttyz");
+const E = ttyz.E;
+const termdraw = ttyz.termdraw;
+const text = ttyz.text;
+
+var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
+
+const Demo = struct {
+    screen: *ttyz.Screen,
+    current_tab: Tab = .overview,
+    mouse_pos: struct { row: usize = 0, col: usize = 0 } = .{},
+    click_count: usize = 0,
+    key_history: [8]u8 = .{' '} ** 8,
+    key_idx: usize = 0,
+    color_offset: u8 = 0,
+    frame: usize = 0,
+
+    const Tab = enum { overview, colors, events, boxes, text_demo };
+    const tabs = [_]Tab{ .overview, .colors, .events, .boxes, .text_demo };
+
+    fn tabName(t: Tab) []const u8 {
+        return switch (t) {
+            .overview => "Overview",
+            .colors => "Colors",
+            .events => "Events",
+            .boxes => "Boxes",
+            .text_demo => "Text",
+        };
+    }
+
+    fn nextTab(self: *Demo) void {
+        const idx = @intFromEnum(self.current_tab);
+        self.current_tab = tabs[(idx + 1) % tabs.len];
+    }
+
+    fn prevTab(self: *Demo) void {
+        const idx = @intFromEnum(self.current_tab);
+        self.current_tab = tabs[(idx + tabs.len - 1) % tabs.len];
+    }
+
+    fn recordKey(self: *Demo, key: u8) void {
+        self.key_history[self.key_idx] = key;
+        self.key_idx = (self.key_idx + 1) % self.key_history.len;
+    }
+
+    fn render(self: *Demo) !void {
+        const s = self.screen;
+        try s.home();
+
+        // Draw header
+        try self.drawHeader();
+
+        // Draw tab bar
+        try self.drawTabBar();
+
+        // Draw content based on current tab
+        switch (self.current_tab) {
+            .overview => try self.drawOverview(),
+            .colors => try self.drawColors(),
+            .events => try self.drawEvents(),
+            .boxes => try self.drawBoxes(),
+            .text_demo => try self.drawTextDemo(),
+        }
+
+        // Draw footer
+        try self.drawFooter();
+
+        self.frame +%= 1;
+    }
+
+    fn drawHeader(self: *Demo) !void {
+        const s = self.screen;
+        const title = " ttyz Demo ";
+        const padding = (s.width -| @as(u16, @intCast(title.len))) / 2;
+
+        try s.print(E.BG_BLUE ++ E.FG_WHITE ++ E.BOLD, .{});
+
+        // Fill line with spaces
+        var i: u16 = 0;
+        while (i < s.width) : (i += 1) {
+            try s.print(" ", .{});
+        }
+
+        try s.print(E.GOTO, .{ @as(u16, 1), padding });
+        try s.print("{s}" ++ E.RESET_STYLE ++ "\n", .{title});
+    }
+
+    fn drawTabBar(self: *Demo) !void {
+        const s = self.screen;
+        try s.print(E.GOTO, .{ @as(u16, 3), @as(u16, 1) });
+
+        for (tabs) |t| {
+            const is_active = t == self.current_tab;
+            if (is_active) {
+                try s.print(E.BG_WHITE ++ E.FG_BLACK ++ E.BOLD, .{});
+            } else {
+                try s.print(E.DIM, .{});
+            }
+            try s.print(" {s} " ++ E.RESET_STYLE ++ " ", .{tabName(t)});
+        }
+        try s.print("\n", .{});
+    }
+
+    fn drawOverview(self: *Demo) !void {
+        const s = self.screen;
+        const start_row: u16 = 5;
+
+        try s.print(E.GOTO ++ E.BOLD ++ "Welcome to ttyz!" ++ E.RESET_STYLE ++ "\n", .{ start_row, @as(u16, 3) });
+
+        const features = [_][]const u8{
+            "A Zig library for terminal user interfaces",
+            "",
+            "Features:",
+            "  * Raw mode terminal I/O with auto-restore",
+            "  * Keyboard, mouse, and focus events",
+            "  * Box drawing with Unicode characters",
+            "  * 16, 256, and true color support",
+            "  * Text utilities (padding, centering)",
+            "  * Immediate-mode layout engine",
+            "  * Kitty graphics protocol support",
+            "",
+            "Navigation:",
+            "  Tab / Shift+Tab  - Switch tabs",
+            "  Arrow keys       - Navigate",
+            "  q / Esc          - Quit",
+        };
+
+        for (features, 0..) |line, i| {
+            try s.print(E.GOTO ++ "{s}\n", .{ start_row + 2 + @as(u16, @intCast(i)), @as(u16, 5), line });
+        }
+
+        // Animated spinner
+        const spinners = [_][]const u8{ "|", "/", "-", "\\" };
+        const spinner = spinners[(self.frame / 8) % spinners.len];
+        try s.print(E.GOTO ++ E.FG_CYAN ++ "{s}" ++ E.RESET_STYLE, .{ start_row + 2, @as(u16, 3), spinner });
+    }
+
+    fn drawColors(self: *Demo) !void {
+        const s = self.screen;
+        const start_row: u16 = 5;
+
+        // 16 basic colors
+        try s.print(E.GOTO ++ E.BOLD ++ "16 Basic Colors:" ++ E.RESET_STYLE ++ "\n", .{ start_row, @as(u16, 3) });
+
+        try s.print(E.GOTO, .{ start_row + 1, @as(u16, 3) });
+        const bg_colors = [_][]const u8{ E.BG_BLACK, E.BG_RED, E.BG_GREEN, E.BG_YELLOW, E.BG_BLUE, E.BG_MAGENTA, E.BG_CYAN, E.BG_WHITE };
+
+        for (bg_colors) |bg| {
+            try s.print("{s}  " ++ E.RESET_STYLE, .{bg});
+        }
+        try s.print("  Normal\n", .{});
+
+        try s.print(E.GOTO, .{ start_row + 2, @as(u16, 3) });
+        const bright_bg = [_][]const u8{ E.BG_BRIGHT_BLACK, E.BG_BRIGHT_RED, E.BG_BRIGHT_GREEN, E.BG_BRIGHT_YELLOW, E.BG_BRIGHT_BLUE, E.BG_BRIGHT_MAGENTA, E.BG_BRIGHT_CYAN, E.BG_BRIGHT_WHITE };
+        for (bright_bg) |bg| {
+            try s.print("{s}  " ++ E.RESET_STYLE, .{bg});
+        }
+        try s.print("  Bright\n", .{});
+
+        // 256 color palette
+        try s.print(E.GOTO ++ E.BOLD ++ "\n256 Color Palette:" ++ E.RESET_STYLE ++ "\n", .{ start_row + 4, @as(u16, 3) });
+
+        // Standard colors (0-15)
+        try s.print(E.GOTO, .{ start_row + 5, @as(u16, 3) });
+        var c: u8 = 0;
+        while (c < 16) : (c += 1) {
+            const color = (c +% self.color_offset) % 16;
+            try s.print(E.SET_BG_256 ++ " " ++ E.RESET_STYLE, .{color});
+        }
+
+        // 216 colors (16-231) - show a slice
+        try s.print(E.GOTO, .{ start_row + 6, @as(u16, 3) });
+        c = 16;
+        const offset = self.color_offset % 36;
+        while (c < 16 + 36) : (c += 1) {
+            const color = 16 + ((c - 16 + offset) % 216);
+            try s.print(E.SET_BG_256 ++ " " ++ E.RESET_STYLE, .{color});
+        }
+
+        // Grayscale (232-255)
+        try s.print(E.GOTO, .{ start_row + 7, @as(u16, 3) });
+        c = 232;
+        while (c < 256) : (c += 1) {
+            try s.print(E.SET_BG_256 ++ " " ++ E.RESET_STYLE, .{c});
+        }
+
+        // True color gradient
+        try s.print(E.GOTO ++ E.BOLD ++ "\nTrue Color (24-bit):" ++ E.RESET_STYLE ++ "\n", .{ start_row + 9, @as(u16, 3) });
+
+        try s.print(E.GOTO, .{ start_row + 10, @as(u16, 3) });
+        var x: u8 = 0;
+        while (x < 64) : (x += 1) {
+            const r = x * 4;
+            const g: u8 = 128;
+            const b = 255 - x * 4;
+            try s.print(E.SET_TRUCOLOR_BG ++ " " ++ E.RESET_STYLE, .{ r, g, b });
+        }
+
+        // Text styles
+        try s.print(E.GOTO ++ E.BOLD ++ "\nText Styles:" ++ E.RESET_STYLE ++ "\n", .{ start_row + 12, @as(u16, 3) });
+        try s.print(E.GOTO, .{ start_row + 13, @as(u16, 3) });
+        try s.print(E.BOLD ++ "Bold" ++ E.RESET_STYLE ++ "  ", .{});
+        try s.print(E.DIM ++ "Dim" ++ E.RESET_STYLE ++ "  ", .{});
+        try s.print(E.ITALIC ++ "Italic" ++ E.RESET_STYLE ++ "  ", .{});
+        try s.print(E.UNDERLINE ++ "Underline" ++ E.RESET_STYLE ++ "  ", .{});
+        try s.print(E.REVERSE ++ "Reverse" ++ E.RESET_STYLE ++ "  ", .{});
+        try s.print(E.STRIKETHROUGH ++ "Strike" ++ E.RESET_STYLE, .{});
+
+        // Animate color offset
+        if (self.frame % 4 == 0) {
+            self.color_offset +%= 1;
+        }
+    }
+
+    fn drawEvents(self: *Demo) !void {
+        const s = self.screen;
+        const start_row: u16 = 5;
+
+        try s.print(E.GOTO ++ E.BOLD ++ "Event Tracking:" ++ E.RESET_STYLE ++ "\n", .{ start_row, @as(u16, 3) });
+
+        // Mouse position
+        try s.print(E.GOTO ++ "Mouse Position: " ++ E.FG_GREEN ++ "({}, {})" ++ E.RESET_STYLE ++ "    \n", .{ start_row + 2, @as(u16, 5), self.mouse_pos.row, self.mouse_pos.col });
+
+        // Click count
+        try s.print(E.GOTO ++ "Click Count:    " ++ E.FG_YELLOW ++ "{}" ++ E.RESET_STYLE ++ "    \n", .{ start_row + 3, @as(u16, 5), self.click_count });
+
+        // Key history
+        try s.print(E.GOTO ++ "Recent Keys:    " ++ E.FG_CYAN, .{ start_row + 4, @as(u16, 5) });
+        for (self.key_history) |k| {
+            if (std.ascii.isPrint(k)) {
+                try s.print("[{c}] ", .{k});
+            } else {
+                try s.print("[?] ", .{});
+            }
+        }
+        try s.print(E.RESET_STYLE ++ "\n", .{});
+
+        // Instructions
+        try s.print(E.GOTO ++ E.DIM ++ "Move your mouse, click, and press keys to see events" ++ E.RESET_STYLE, .{ start_row + 6, @as(u16, 5) });
+
+        // Draw clickable button
+        const btn_row = start_row + 9;
+        const btn_col: u16 = 10;
+        try s.print(E.GOTO ++ E.BG_BLUE ++ E.FG_WHITE ++ " Click Me! " ++ E.RESET_STYLE, .{ btn_row, btn_col });
+
+        // Show if mouse is over button
+        if (self.mouse_pos.row == btn_row and self.mouse_pos.col >= btn_col and self.mouse_pos.col < btn_col + 12) {
+            try s.print(E.GOTO ++ E.FG_GREEN ++ " <-- Hovering!" ++ E.RESET_STYLE, .{ btn_row, btn_col + 12 });
+        }
+    }
+
+    fn drawBoxes(self: *Demo) !void {
+        const s = self.screen;
+
+        // Draw several boxes
+        try termdraw.box(&s.writer.interface, .{
+            .x = 3,
+            .y = 5,
+            .width = 20,
+            .height = 8,
+            .color = .{ 255, 100, 100, 255 },
+        });
+
+        try termdraw.box(&s.writer.interface, .{
+            .x = 25,
+            .y = 5,
+            .width = 20,
+            .height = 8,
+            .color = .{ 100, 255, 100, 255 },
+        });
+
+        try termdraw.box(&s.writer.interface, .{
+            .x = 47,
+            .y = 5,
+            .width = 20,
+            .height = 8,
+            .color = .{ 100, 100, 255, 255 },
+        });
+
+        // Labels inside boxes
+        try s.print(E.GOTO ++ E.FG_RED ++ "Red Box" ++ E.RESET_STYLE, .{ @as(u16, 8), @as(u16, 9) });
+        try s.print(E.GOTO ++ E.FG_GREEN ++ "Green Box" ++ E.RESET_STYLE, .{ @as(u16, 8), @as(u16, 30) });
+        try s.print(E.GOTO ++ E.FG_BLUE ++ "Blue Box" ++ E.RESET_STYLE, .{ @as(u16, 8), @as(u16, 53) });
+
+        // Nested box
+        try termdraw.box(&s.writer.interface, .{
+            .x = 3,
+            .y = 14,
+            .width = 30,
+            .height = 6,
+            .color = .{ 255, 255, 0, 255 },
+        });
+
+        try termdraw.box(&s.writer.interface, .{
+            .x = 5,
+            .y = 15,
+            .width = 26,
+            .height = 4,
+            .color = .{ 255, 128, 0, 255 },
+        });
+
+        try s.print(E.GOTO ++ "Nested boxes!", .{ @as(u16, 16), @as(u16, 10) });
+
+        // Horizontal and vertical lines
+        try termdraw.hline(&s.writer.interface, .{ .x = 40, .y = 14, .width = 25 });
+        try termdraw.vline(&s.writer.interface, .{ .x = 52, .y = 14, .height = 6 });
+
+        try s.print(E.GOTO ++ "Lines", .{ @as(u16, 15), @as(u16, 54) });
+    }
+
+    fn drawTextDemo(self: *Demo) !void {
+        const s = self.screen;
+        const start_row: u16 = 5;
+
+        try s.print(E.GOTO ++ E.BOLD ++ "Text Utilities:" ++ E.RESET_STYLE ++ "\n", .{ start_row, @as(u16, 3) });
+
+        // Padding demo
+        var buf: [40]u8 = undefined;
+
+        try s.print(E.GOTO ++ "padRight(\"Hello\", 20):", .{ start_row + 2, @as(u16, 3) });
+        const padded_right = text.padRight("Hello", 20, &buf);
+        try s.print(E.GOTO ++ E.BG_BRIGHT_BLACK ++ "{s}" ++ E.RESET_STYLE ++ "|", .{ start_row + 2, @as(u16, 28), padded_right });
+
+        try s.print(E.GOTO ++ "padLeft(\"Hello\", 20):", .{ start_row + 3, @as(u16, 3) });
+        const padded_left = text.padLeft("Hello", 20, &buf);
+        try s.print(E.GOTO ++ "|" ++ E.BG_BRIGHT_BLACK ++ "{s}" ++ E.RESET_STYLE, .{ start_row + 3, @as(u16, 27), padded_left });
+
+        // Display width
+        try s.print(E.GOTO ++ "displayWidth(\"Hello\"):  {}", .{ start_row + 5, @as(u16, 3), text.displayWidth("Hello") });
+        try s.print(E.GOTO ++ "displayWidth(\"\"): {}", .{ start_row + 6, @as(u16, 3), text.displayWidth("") });
+
+        // Repeat
+        try s.print(E.GOTO ++ "repeat('-', 30):", .{ start_row + 8, @as(u16, 3) });
+        const repeated = text.repeat('-', 30, &buf);
+        try s.print(E.GOTO ++ E.FG_CYAN ++ "{s}" ++ E.RESET_STYLE, .{ start_row + 8, @as(u16, 22), repeated });
+
+        // Colorz demo
+        try s.print(E.GOTO ++ E.BOLD ++ "\nColorz Format Strings:" ++ E.RESET_STYLE, .{ start_row + 10, @as(u16, 3) });
+
+        var clr = ttyz.colorz.wrap(&s.writer.interface);
+        try s.print(E.GOTO, .{ start_row + 11, @as(u16, 3) });
+        try clr.print("@[.green]Success@[.reset]: @[.bold]Operation complete@[.reset]", .{});
+
+        try s.print(E.GOTO, .{ start_row + 12, @as(u16, 3) });
+        try clr.print("@[.red]Error@[.reset]: @[.dim]Something went wrong@[.reset]", .{});
+
+        try s.print(E.GOTO, .{ start_row + 13, @as(u16, 3) });
+        try clr.print("@[.yellow]Warning@[.reset]: @[.cyan]Check your input@[.reset]", .{});
+    }
+
+    fn drawFooter(self: *Demo) !void {
+        const s = self.screen;
+        const footer_row = s.height;
+
+        try s.print(E.GOTO ++ E.BG_BRIGHT_BLACK ++ E.FG_WHITE, .{ footer_row, @as(u16, 1) });
+
+        // Fill line
+        var i: u16 = 0;
+        while (i < s.width) : (i += 1) {
+            try s.print(" ", .{});
+        }
+
+        try s.print(E.GOTO ++ " Tab: Switch | q: Quit | Screen: {}x{} | Frame: {} ", .{ footer_row, @as(u16, 1), s.width, s.height, self.frame });
+        try s.print(E.RESET_STYLE, .{});
+    }
+};
+
+pub fn main() !void {
+    defer _ = gpa.deinit();
+
+    var s = try ttyz.Screen.init();
+    defer _ = s.deinit() catch {};
+
+    try s.start();
+
+    var demo = Demo{ .screen = &s };
+
+    while (s.running) {
+        // Handle events
+        while (s.pollEvent()) |event| {
+            switch (event) {
+                .key => |key| {
+                    switch (key) {
+                        .q, .Q, .esc => s.running = false,
+                        .tab => demo.nextTab(),
+                        else => {
+                            const key_val = @intFromEnum(key);
+                            if (key_val < 128) {
+                                demo.recordKey(@intCast(key_val));
+                            }
+                        },
+                    }
+                },
+                .mouse => |mouse| {
+                    demo.mouse_pos.row = mouse.row;
+                    demo.mouse_pos.col = mouse.col;
+                    if (mouse.button_state == .pressed) {
+                        demo.click_count += 1;
+                    }
+                },
+                .interrupt => s.running = false,
+                else => {},
+            }
+        }
+
+        // Clear and render
+        try s.clearScreen();
+        try demo.render();
+        try s.flush();
+
+        // ~30 FPS
+        std.Thread.sleep(std.time.ns_per_s / 30);
+    }
+}
+
+pub const std_options: std.Options = .{
+    .log_level = .info,
+};

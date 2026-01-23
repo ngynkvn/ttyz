@@ -239,10 +239,12 @@ while (screen.pollEvent()) |event| {
 ## Building
 
 ```bash
-zig build          # Build the library and example
+zig build          # Build the library and examples
 zig build run      # Run the example application
+zig build demo     # Run the interactive demo
 zig build test     # Run tests
 zig build check    # Run tests and verification
+zig build docs     # Generate documentation (output in zig-out/docs/)
 ```
 
 ### Debug Mode
@@ -252,6 +254,21 @@ Run with `--debug` to enable logging to stderr:
 ```bash
 zig build run -- --debug 2>/tmp/ttyz.log
 ```
+
+### Demo Application
+
+The demo showcases all major features in an interactive TUI:
+
+```bash
+zig build demo
+```
+
+Features demonstrated:
+- Tab navigation between sections
+- Color palettes (16, 256, and true color)
+- Event tracking (keyboard, mouse)
+- Box drawing with Unicode characters
+- Text utilities and colorz formatting
 
 ## License
 

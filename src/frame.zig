@@ -22,13 +22,30 @@ const ansi = ttyz.ansi;
 // Re-export types
 // Layout types
 /// Drawing context wrapping a Buffer.
+///
+/// Frame provides immediate-mode drawing methods for terminal UIs.
+/// It wraps a Buffer and provides methods for setting cells, drawing
+/// text, rectangles, and lines with colors and styles.
+///
+/// ## Example
+/// ```zig
+/// var frame = Frame.init(&buffer);
+/// frame.clear();
+/// frame.setString(0, 0, "Hello", .{ .bold = true }, .green, .default);
+/// frame.drawRect(Rect{ .x = 0, .y = 0, .width = 20, .height = 10 }, .single);
+/// try frame.render(&screen);
+/// ```
 pub const Frame = struct {
+    /// The underlying buffer that stores cell data.
     buffer: *Buffer,
 
+    /// Create a Frame from a Buffer.
     pub fn init(buffer: *Buffer) Frame {
         return .{ .buffer = buffer };
     }
 
+    /// Get the rectangular area of the frame.
+    /// Returns a Rect covering the entire buffer dimensions.
     pub fn area(self: Frame) Rect {
         return self.buffer.area();
     }
@@ -48,10 +65,15 @@ pub const Frame = struct {
         return l.areas(self.area());
     }
 
+    /// Set a single cell at the given coordinates.
+    /// Out-of-bounds coordinates are silently ignored.
     pub fn setCell(self: *Frame, x: u16, y: u16, cell: Cell) void {
         self.buffer.set(x, y, cell);
     }
 
+    /// Draw a string at the given position with style and colors.
+    /// The string is drawn left-to-right, one codepoint per cell.
+    /// Text that extends beyond the buffer width is clipped.
     pub fn setString(self: *Frame, x: u16, y: u16, text: []const u8, style: Style, fg: Color, bg: Color) void {
         var col = x;
         var iter = std.unicode.Utf8Iterator{ .bytes = text, .i = 0 };
@@ -62,6 +84,8 @@ pub const Frame = struct {
         }
     }
 
+    /// Fill a rectangular region with a single cell.
+    /// The rectangle is clipped to the buffer bounds.
     pub fn fillRect(self: *Frame, rect: Rect, cell: Cell) void {
         const clipped = self.buffer.area().intersect(rect) orelse return;
         var y = clipped.y;
@@ -73,10 +97,15 @@ pub const Frame = struct {
         }
     }
 
+    /// Draw a rectangle border with the specified border style.
+    /// Uses default style and colors. For styled borders, use `drawRectStyled`.
     pub fn drawRect(self: *Frame, rect: Rect, border_style: BorderStyle) void {
         self.drawRectStyled(rect, border_style, .{}, .default, .default);
     }
 
+    /// Draw a styled rectangle border with custom style and colors.
+    /// The rectangle must have width >= 2 and height >= 2.
+    /// Border styles include `.single`, `.double`, `.rounded`, `.heavy`, `.none`.
     pub fn drawRectStyled(self: *Frame, rect: Rect, border_style: BorderStyle, style: Style, fg: Color, bg: Color) void {
         if (rect.width < 2 or rect.height < 2) return;
         const chars = border_style.chars();
@@ -121,10 +150,14 @@ pub const Frame = struct {
         self.setString(x, y, text, .{}, .default, .default);
     }
 
+    /// Clear all cells in the buffer to default (space character, default colors).
     pub fn clear(self: *Frame) void {
         self.buffer.clear();
     }
 
+    /// Render the frame to a Screen.
+    /// Outputs ANSI escape sequences for cursor positioning, colors, and styles,
+    /// followed by the cell characters. Call `screen.flush()` after to display.
     pub fn render(self: Frame, screen: *Screen) !void {
         var current_style: Style = .{};
         var current_fg: Color = .default;

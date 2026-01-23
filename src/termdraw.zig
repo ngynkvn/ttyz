@@ -15,7 +15,7 @@
 
 const std = @import("std");
 
-const E = @import("ttyz.zig").E;
+const ansi = @import("ansi.zig");
 
 /// Terminal drawing context for managing drawing state.
 pub const TermDraw = @This();
@@ -59,10 +59,10 @@ pub fn box(w: anytype, o: BoxOptions) !void {
     const height = o.height;
     var buf: [256]u8 = undefined;
     if (o.color) |color| {
-        const s = std.fmt.bufPrint(&buf, E.SET_TRUCOLOR, .{ color[0], color[1], color[2] }) catch return;
+        const s = std.fmt.bufPrint(&buf, ansi.fg_rgb_fmt, .{ color[0], color[1], color[2] }) catch return;
         _ = try w.write(s);
     }
-    const goto_s = std.fmt.bufPrint(&buf, E.GOTO, .{ y, x }) catch return;
+    const goto_s = std.fmt.bufPrint(&buf, ansi.goto_fmt, .{ y, x }) catch return;
     _ = try w.write(goto_s);
     _ = try w.write(dr);
     var i: u16 = 0;
@@ -71,16 +71,16 @@ pub fn box(w: anytype, o: BoxOptions) !void {
     }
     _ = try w.write(dl);
     for (1..height -| 1) |row| {
-        const line_s = std.fmt.bufPrint(&buf, E.GOTO ++ vert ++ E.GOTO ++ vert, .{ y + row, x, y + row, x + width -| 1 }) catch return;
+        const line_s = std.fmt.bufPrint(&buf, ansi.goto_fmt ++ vert ++ ansi.goto_fmt ++ vert, .{ y + row, x, y + row, x + width -| 1 }) catch return;
         _ = try w.write(line_s);
     }
-    const bottom_s = std.fmt.bufPrint(&buf, E.GOTO ++ ur, .{ y + height -| 1, x }) catch return;
+    const bottom_s = std.fmt.bufPrint(&buf, ansi.goto_fmt ++ ur, .{ y + height -| 1, x }) catch return;
     _ = try w.write(bottom_s);
     i = 0;
     while (i < width -| 2) : (i += 1) {
         _ = try w.write(horiz);
     }
-    _ = try w.write(ul ++ E.RESET_COLORS);
+    _ = try w.write(ul ++ ansi.reset);
 }
 
 /// Options for drawing a horizontal line.
@@ -96,7 +96,7 @@ const HLineOptions = struct {
 /// Draw a horizontal line using the heavy horizontal box character (━).
 pub fn hline(w: anytype, o: HLineOptions) !void {
     var buf: [32]u8 = undefined;
-    const s = std.fmt.bufPrint(&buf, E.GOTO, .{ o.y, o.x }) catch return;
+    const s = std.fmt.bufPrint(&buf, ansi.goto_fmt, .{ o.y, o.x }) catch return;
     _ = try w.write(s);
     var i: u16 = 0;
     while (i < o.width) : (i += 1) {
@@ -118,7 +118,7 @@ const VLineOptions = struct {
 pub fn vline(w: anytype, o: VLineOptions) !void {
     var buf: [32]u8 = undefined;
     for (0..o.height) |i| {
-        const s = std.fmt.bufPrint(&buf, E.GOTO ++ vert, .{ o.y + @as(u16, @intCast(i)), o.x }) catch return;
+        const s = std.fmt.bufPrint(&buf, ansi.goto_fmt ++ vert, .{ o.y + @as(u16, @intCast(i)), o.x }) catch return;
         _ = try w.write(s);
     }
 }

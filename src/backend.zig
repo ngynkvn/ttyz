@@ -4,12 +4,6 @@
 //! - TtyBackend: Real terminal I/O via file descriptor
 //! - TestBackend: Captures output to buffer for testing
 
-const std = @import("std");
-const posix = std.posix;
-const system = posix.system;
-
-const Event = @import("event.zig").Event;
-
 /// Size returned by backend getSize.
 pub const Size = struct { width: u16, height: u16 };
 
@@ -230,3 +224,9 @@ test "TestBackend returns configured size" {
     try std.testing.expectEqual(@as(u16, 120), size.width);
     try std.testing.expectEqual(@as(u16, 40), size.height);
 }
+
+const std = @import("std");
+const posix = std.posix;
+const system = posix.system;
+
+const Event = @import("event.zig").Event;

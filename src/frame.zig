@@ -18,7 +18,6 @@ pub const BorderChars = types.BorderChars;
 const ttyz = @import("ttyz.zig");
 const Screen = ttyz.Screen;
 const ansi = ttyz.ansi;
-const E = ansi.E;
 
 // Re-export types
 // Layout types
@@ -130,38 +129,38 @@ pub const Frame = struct {
         var current_style: Style = .{};
         var current_fg: Color = .default;
         var current_bg: Color = .default;
-        try screen.writeAll(E.RESET_STYLE);
+        try screen.writeAll(ansi.reset);
 
         var utf8_buf: [4]u8 = undefined;
         var y: u16 = 0;
         while (y < self.buffer.height) : (y += 1) {
-            try screen.print(E.GOTO, .{ y + 1, @as(u16, 1) });
+            try screen.print(ansi.goto_fmt, .{ y + 1, @as(u16, 1) });
             var x: u16 = 0;
             while (x < self.buffer.width) : (x += 1) {
                 const cell = self.buffer.get(x, y);
                 if (!cell.style.eql(current_style) or !cell.fg.eql(current_fg) or !cell.bg.eql(current_bg)) {
-                    try screen.writeAll(E.RESET_STYLE);
+                    try screen.writeAll(ansi.reset);
                     current_style = .{};
                     current_fg = .default;
                     current_bg = .default;
 
-                    if (cell.style.bold) try screen.writeAll(E.BOLD);
-                    if (cell.style.dim) try screen.writeAll(E.DIM);
-                    if (cell.style.italic) try screen.writeAll(E.ITALIC);
-                    if (cell.style.underline) try screen.writeAll(E.UNDERLINE);
-                    if (cell.style.blink) try screen.writeAll(E.BLINK);
-                    if (cell.style.reverse) try screen.writeAll(E.REVERSE);
-                    if (cell.style.strikethrough) try screen.writeAll(E.STRIKETHROUGH);
+                    if (cell.style.bold) try screen.writeAll(ansi.bold);
+                    if (cell.style.dim) try screen.writeAll(ansi.faint);
+                    if (cell.style.italic) try screen.writeAll(ansi.italic);
+                    if (cell.style.underline) try screen.writeAll(ansi.underline);
+                    if (cell.style.blink) try screen.writeAll(ansi.slow_blink);
+                    if (cell.style.reverse) try screen.writeAll(ansi.reverse);
+                    if (cell.style.strikethrough) try screen.writeAll(ansi.crossed_out);
 
                     switch (cell.fg) {
                         .default => {},
-                        .indexed => |i| try screen.print(E.SET_FG_256, .{i}),
-                        .rgb => |c| try screen.print(E.SET_TRUCOLOR, .{ c.r, c.g, c.b }),
+                        .indexed => |i| try screen.print(ansi.fg_256_fmt, .{i}),
+                        .rgb => |c| try screen.print(ansi.fg_rgb_fmt, .{ c.r, c.g, c.b }),
                     }
                     switch (cell.bg) {
                         .default => {},
-                        .indexed => |i| try screen.print(E.SET_BG_256, .{i}),
-                        .rgb => |c| try screen.print(E.SET_TRUCOLOR_BG, .{ c.r, c.g, c.b }),
+                        .indexed => |i| try screen.print(ansi.bg_256_fmt, .{i}),
+                        .rgb => |c| try screen.print(ansi.bg_rgb_fmt, .{ c.r, c.g, c.b }),
                     }
                     current_style = cell.style;
                     current_fg = cell.fg;
@@ -171,7 +170,7 @@ pub const Frame = struct {
                 _ = try screen.write(utf8_buf[0..len]);
             }
         }
-        try screen.writeAll(E.RESET_STYLE);
+        try screen.writeAll(ansi.reset);
     }
 };
 

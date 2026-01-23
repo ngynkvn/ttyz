@@ -138,7 +138,7 @@ pub const Screen = struct {
     fn writeStartSequences(self: *Screen) !void {
         if (self.options.hide_cursor) _ = try self.writeRawFrom(ansi.cursor.hide);
         if (self.options.alt_screen) _ = try self.writeRawFrom(ansi.screen_mode.enableAltBuffer);
-        if (self.options.mouse_tracking) _ = try self.writeRawDirect(ansi.E.ENABLE_MOUSE_TRACKING);
+        if (self.options.mouse_tracking) _ = try self.writeRawDirect(ansi.mouse_tracking_enable);
     }
 
     /// Write cleanup escape sequences based on options.
@@ -146,7 +146,7 @@ pub const Screen = struct {
         // TODO:
         if (self.options.hide_cursor) try self.writeRawFrom(ansi.cursor.show);
         if (self.options.alt_screen) try self.writeRawFrom(ansi.screen_mode.disableAltBuffer);
-        if (self.options.mouse_tracking) _ = try self.writeRawDirect(ansi.E.DISABLE_MOUSE_TRACKING);
+        if (self.options.mouse_tracking) _ = try self.writeRawDirect(ansi.mouse_tracking_disable);
     }
 
     fn writeRawFrom(self: *Screen, f: *const fn (*std.Io.Writer) anyerror!void) !void {
@@ -270,14 +270,14 @@ pub const Screen = struct {
 
     /// Move cursor to the specified row and column.
     pub fn goto(self: *Screen, r: u16, c: u16) !void {
-        try self.print(E.GOTO, .{ r, c });
+        try self.print(ansi.goto_fmt, .{ r, c });
     }
 
     /// Send a cursor position query to the terminal.
     pub fn queryPos(self: *Screen) !void {
         self.lock.lock();
         defer self.lock.unlock();
-        _ = try self.writeRawDirect(E.REPORT_CURSOR_POS);
+        _ = try self.writeRawDirect(ansi.cursor_position_report);
     }
 
     /// Query the current terminal size.
@@ -344,27 +344,27 @@ pub const Screen = struct {
 
     /// Clear the entire screen.
     pub fn clearScreen(self: *Screen) !void {
-        try self.writeAll(E.CLEAR_SCREEN);
+        try self.writeAll(ansi.erase_screen);
     }
 
     /// Move the cursor to the home position (top-left corner).
     pub fn home(self: *Screen) !void {
-        try self.writeAll(E.HOME);
+        try self.writeAll(ansi.cursor_home);
     }
 
     /// Clear screen and move cursor to home position.
     pub fn reset(self: *Screen) !void {
-        try self.writeAll(E.CLEAR_SCREEN ++ E.HOME);
+        try self.writeAll(ansi.erase_screen ++ ansi.cursor_home);
     }
 
     /// Hide the cursor.
     pub fn hideCursor(self: *Screen) !void {
-        try self.writeAll(E.CURSOR_INVISIBLE);
+        try self.writeAll(ansi.cursor_hide);
     }
 
     /// Show the cursor.
     pub fn showCursor(self: *Screen) !void {
-        try self.writeAll(E.CURSOR_VISIBLE);
+        try self.writeAll(ansi.cursor_show);
     }
 };
 
@@ -381,7 +381,7 @@ pub const panic = std.debug.FullPanic(panicTty);
 
 pub fn panicTty(msg: []const u8, ra: ?usize) noreturn {
     if (tty_fd) |fd| {
-        const exit_seq = E.EXIT_ALT_SCREEN ++ E.CURSOR_VISIBLE ++ E.DISABLE_MOUSE_TRACKING;
+        const exit_seq = ansi.alt_buffer_disable ++ ansi.cursor_show ++ ansi.mouse_tracking_disable;
         _ = system.write(fd, exit_seq.ptr, exit_seq.len);
         if (orig_termios) |orig| _ = system.tcsetattr(fd, .FLUSH, &orig);
     }
@@ -394,7 +394,6 @@ const posix = std.posix;
 const system = posix.system;
 
 const ansi = @import("ansi.zig");
-const E = ansi.E;
 const backend_mod = @import("backend.zig");
 pub const Backend = backend_mod.Backend;
 pub const TtyBackend = backend_mod.TtyBackend;

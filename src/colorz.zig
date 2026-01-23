@@ -75,15 +75,15 @@ pub fn Colorz(comptime WriterType: type) type {
         /// Print text with a single foreground color applied, automatically resetting after.
         pub fn printColored(self: *Self, color: Color, comptime fmt: []const u8, args: anytype) !void {
             _ = try self.inner.write(color.fg());
-            _ = try self.inner.print(fmt ++ E.RESET_STYLE, args);
+            _ = try self.inner.print(fmt ++ ansi.reset, args);
         }
 
         /// Print text with foreground and background colors, automatically resetting after.
         pub fn printStyled(self: *Self, fg_color: ?Color, bg_color: ?Color, style: ?Style, comptime fmt: []const u8, args: anytype) !void {
-            if (style) |s| _ = try self.inner.write(s.ansi());
+            if (style) |s| _ = try self.inner.write(s.toAnsi());
             if (fg_color) |c| _ = try self.inner.write(c.fg());
             if (bg_color) |c| _ = try self.inner.write(c.bg());
-            _ = try self.inner.print(fmt ++ E.RESET_STYLE, args);
+            _ = try self.inner.print(fmt ++ ansi.reset, args);
         }
 
         /// Write a color sequence to the output.
@@ -98,12 +98,12 @@ pub fn Colorz(comptime WriterType: type) type {
 
         /// Write a style sequence to the output.
         pub fn setStyle(self: *Self, style: Style) !void {
-            _ = try self.inner.write(style.ansi());
+            _ = try self.inner.write(style.toAnsi());
         }
 
         /// Reset all colors and styles.
         pub fn reset(self: *Self) !void {
-            _ = try self.inner.write(E.RESET_STYLE);
+            _ = try self.inner.write(ansi.reset);
         }
     };
 }
@@ -135,44 +135,44 @@ pub const Color = enum {
     /// Get the ANSI escape sequence for foreground color.
     pub fn fg(self: Color) []const u8 {
         return switch (self) {
-            .black => E.FG_BLACK,
-            .red => E.FG_RED,
-            .green => E.FG_GREEN,
-            .yellow => E.FG_YELLOW,
-            .blue => E.FG_BLUE,
-            .magenta => E.FG_MAGENTA,
-            .cyan => E.FG_CYAN,
-            .white => E.FG_WHITE,
-            .bright_black => E.FG_BRIGHT_BLACK,
-            .bright_red => E.FG_BRIGHT_RED,
-            .bright_green => E.FG_BRIGHT_GREEN,
-            .bright_yellow => E.FG_BRIGHT_YELLOW,
-            .bright_blue => E.FG_BRIGHT_BLUE,
-            .bright_magenta => E.FG_BRIGHT_MAGENTA,
-            .bright_cyan => E.FG_BRIGHT_CYAN,
-            .bright_white => E.FG_BRIGHT_WHITE,
+            .black => ansi.fg.black,
+            .red => ansi.fg.red,
+            .green => ansi.fg.green,
+            .yellow => ansi.fg.yellow,
+            .blue => ansi.fg.blue,
+            .magenta => ansi.fg.magenta,
+            .cyan => ansi.fg.cyan,
+            .white => ansi.fg.white,
+            .bright_black => ansi.fg.bright_black,
+            .bright_red => ansi.fg.bright_red,
+            .bright_green => ansi.fg.bright_green,
+            .bright_yellow => ansi.fg.bright_yellow,
+            .bright_blue => ansi.fg.bright_blue,
+            .bright_magenta => ansi.fg.bright_magenta,
+            .bright_cyan => ansi.fg.bright_cyan,
+            .bright_white => ansi.fg.bright_white,
         };
     }
 
     /// Get the ANSI escape sequence for background color.
     pub fn bg(self: Color) []const u8 {
         return switch (self) {
-            .black => E.BG_BLACK,
-            .red => E.BG_RED,
-            .green => E.BG_GREEN,
-            .yellow => E.BG_YELLOW,
-            .blue => E.BG_BLUE,
-            .magenta => E.BG_MAGENTA,
-            .cyan => E.BG_CYAN,
-            .white => E.BG_WHITE,
-            .bright_black => E.BG_BRIGHT_BLACK,
-            .bright_red => E.BG_BRIGHT_RED,
-            .bright_green => E.BG_BRIGHT_GREEN,
-            .bright_yellow => E.BG_BRIGHT_YELLOW,
-            .bright_blue => E.BG_BRIGHT_BLUE,
-            .bright_magenta => E.BG_BRIGHT_MAGENTA,
-            .bright_cyan => E.BG_BRIGHT_CYAN,
-            .bright_white => E.BG_BRIGHT_WHITE,
+            .black => ansi.bg.black,
+            .red => ansi.bg.red,
+            .green => ansi.bg.green,
+            .yellow => ansi.bg.yellow,
+            .blue => ansi.bg.blue,
+            .magenta => ansi.bg.magenta,
+            .cyan => ansi.bg.cyan,
+            .white => ansi.bg.white,
+            .bright_black => ansi.bg.bright_black,
+            .bright_red => ansi.bg.bright_red,
+            .bright_green => ansi.bg.bright_green,
+            .bright_yellow => ansi.bg.bright_yellow,
+            .bright_blue => ansi.bg.bright_blue,
+            .bright_magenta => ansi.bg.bright_magenta,
+            .bright_cyan => ansi.bg.bright_cyan,
+            .bright_white => ansi.bg.bright_white,
         };
     }
 };
@@ -188,15 +188,16 @@ pub const Style = enum {
     reset,
 
     /// Get the ANSI escape sequence for this style.
-    pub fn ansi(self: Style) []const u8 {
+    pub fn toAnsi(self: Style) []const u8 {
+        const a = @import("ansi.zig");
         return switch (self) {
-            .bold => E.BOLD,
-            .dim => E.DIM,
-            .italic => E.ITALIC,
-            .underline => E.UNDERLINE,
-            .reverse => E.REVERSE,
-            .strikethrough => E.STRIKETHROUGH,
-            .reset => E.RESET_STYLE,
+            .bold => a.bold,
+            .dim => a.faint,
+            .italic => a.italic,
+            .underline => a.underline,
+            .reverse => a.reverse,
+            .strikethrough => a.crossed_out,
+            .reset => a.reset,
         };
     }
 };
@@ -207,56 +208,57 @@ pub const Style = enum {
 // Styles: @[.bold], @[.dim], @[.italic], @[.underline], @[.reset]
 const DotCodes = std.StaticStringMap([]const u8).initComptime(.{
     // Foreground colors
-    .{ ".black", E.FG_BLACK },
-    .{ ".red", E.FG_RED },
-    .{ ".green", E.FG_GREEN },
-    .{ ".yellow", E.FG_YELLOW },
-    .{ ".blue", E.FG_BLUE },
-    .{ ".magenta", E.FG_MAGENTA },
-    .{ ".cyan", E.FG_CYAN },
-    .{ ".white", E.FG_WHITE },
-    .{ ".bright_black", E.FG_BRIGHT_BLACK },
-    .{ ".bright_red", E.FG_BRIGHT_RED },
-    .{ ".bright_green", E.FG_BRIGHT_GREEN },
-    .{ ".bright_yellow", E.FG_BRIGHT_YELLOW },
-    .{ ".bright_blue", E.FG_BRIGHT_BLUE },
-    .{ ".bright_magenta", E.FG_BRIGHT_MAGENTA },
-    .{ ".bright_cyan", E.FG_BRIGHT_CYAN },
-    .{ ".bright_white", E.FG_BRIGHT_WHITE },
+    .{ ".black", ansi.fg.black },
+    .{ ".red", ansi.fg.red },
+    .{ ".green", ansi.fg.green },
+    .{ ".yellow", ansi.fg.yellow },
+    .{ ".blue", ansi.fg.blue },
+    .{ ".magenta", ansi.fg.magenta },
+    .{ ".cyan", ansi.fg.cyan },
+    .{ ".white", ansi.fg.white },
+    .{ ".bright_black", ansi.fg.bright_black },
+    .{ ".bright_red", ansi.fg.bright_red },
+    .{ ".bright_green", ansi.fg.bright_green },
+    .{ ".bright_yellow", ansi.fg.bright_yellow },
+    .{ ".bright_blue", ansi.fg.bright_blue },
+    .{ ".bright_magenta", ansi.fg.bright_magenta },
+    .{ ".bright_cyan", ansi.fg.bright_cyan },
+    .{ ".bright_white", ansi.fg.bright_white },
     // Background colors
-    .{ ".bg_black", E.BG_BLACK },
-    .{ ".bg_red", E.BG_RED },
-    .{ ".bg_green", E.BG_GREEN },
-    .{ ".bg_yellow", E.BG_YELLOW },
-    .{ ".bg_blue", E.BG_BLUE },
-    .{ ".bg_magenta", E.BG_MAGENTA },
-    .{ ".bg_cyan", E.BG_CYAN },
-    .{ ".bg_white", E.BG_WHITE },
-    .{ ".bg_bright_black", E.BG_BRIGHT_BLACK },
-    .{ ".bg_bright_red", E.BG_BRIGHT_RED },
-    .{ ".bg_bright_green", E.BG_BRIGHT_GREEN },
-    .{ ".bg_bright_yellow", E.BG_BRIGHT_YELLOW },
-    .{ ".bg_bright_blue", E.BG_BRIGHT_BLUE },
-    .{ ".bg_bright_magenta", E.BG_BRIGHT_MAGENTA },
-    .{ ".bg_bright_cyan", E.BG_BRIGHT_CYAN },
-    .{ ".bg_bright_white", E.BG_BRIGHT_WHITE },
+    .{ ".bg_black", ansi.bg.black },
+    .{ ".bg_red", ansi.bg.red },
+    .{ ".bg_green", ansi.bg.green },
+    .{ ".bg_yellow", ansi.bg.yellow },
+    .{ ".bg_blue", ansi.bg.blue },
+    .{ ".bg_magenta", ansi.bg.magenta },
+    .{ ".bg_cyan", ansi.bg.cyan },
+    .{ ".bg_white", ansi.bg.white },
+    .{ ".bg_bright_black", ansi.bg.bright_black },
+    .{ ".bg_bright_red", ansi.bg.bright_red },
+    .{ ".bg_bright_green", ansi.bg.bright_green },
+    .{ ".bg_bright_yellow", ansi.bg.bright_yellow },
+    .{ ".bg_bright_blue", ansi.bg.bright_blue },
+    .{ ".bg_bright_magenta", ansi.bg.bright_magenta },
+    .{ ".bg_bright_cyan", ansi.bg.bright_cyan },
+    .{ ".bg_bright_white", ansi.bg.bright_white },
     // Text styles
-    .{ ".bold", E.BOLD },
-    .{ ".dim", E.DIM },
-    .{ ".italic", E.ITALIC },
-    .{ ".underline", E.UNDERLINE },
-    .{ ".reverse", E.REVERSE },
-    .{ ".strikethrough", E.STRIKETHROUGH },
-    .{ ".reset", E.RESET_STYLE },
+    .{ ".bold", ansi.bold },
+    .{ ".dim", ansi.faint },
+    .{ ".italic", ansi.italic },
+    .{ ".underline", ansi.underline },
+    .{ ".reverse", ansi.reverse },
+    .{ ".strikethrough", ansi.crossed_out },
+    .{ ".reset", ansi.reset },
 });
 
 // Bang codes map for cursor control
+// Note: cursor save/restore use DEC sequences for wider compatibility
 const BangCodes = std.StaticStringMap([]const u8).initComptime(.{
-    .{ "!H", E.HOME },
-    .{ "!CI", E.CURSOR_INVISIBLE },
-    .{ "!CV", E.CURSOR_VISIBLE },
-    .{ "!S", E.CURSOR_SAVE_POS },
-    .{ "!R", E.CURSOR_RESTORE_POS },
+    .{ "!H", ansi.cursor_home },
+    .{ "!CI", ansi.cursor_hide },
+    .{ "!CV", ansi.cursor_show },
+    .{ "!S", "\x1b[7" }, // DEC save cursor (more widely supported than ANSI \x1b[s)
+    .{ "!R", "\x1b[8" }, // DEC restore cursor (more widely supported than ANSI \x1b[u)
 });
 
 const ParserState = enum { start, enter_bracket, exit };
@@ -304,7 +306,7 @@ pub fn parseFmt(comptime fmt: []const u8) []const u8 {
                             const sep = std.mem.indexOfScalar(u8, code, ';') orelse @compileError("Invalid row or col, could not find `;`. " ++ code[2..]);
                             const row = std.fmt.parseInt(usize, code[1..sep], 10) catch @compileError("Invalid row: " ++ code[1..sep] ++ " is not parseable");
                             const col = std.fmt.parseInt(usize, code[sep + 1 ..], 10) catch @compileError("Invalid col: " ++ code[sep + 1 ..] ++ " is not parseable");
-                            literal = literal ++ comptimePrint(E.GOTO, .{ row, col });
+                            literal = literal ++ comptimePrint(ansi.goto_fmt, .{ row, col });
                             i += code.len + 1;
                             continue :state .exit;
                         },
@@ -352,4 +354,3 @@ const std = @import("std");
 const comptimePrint = std.fmt.comptimePrint;
 
 const ansi = @import("ansi.zig");
-const E = ansi.E;

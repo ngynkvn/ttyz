@@ -11,21 +11,9 @@
 //! ```
 
 const std = @import("std");
-const E = @import("esc.zig");
 
 /// Text utilities for terminal output.
 pub const Text = @This();
-
-/// Center text within a given width, padding with spaces
-pub fn center(text: []const u8, width: usize) []const u8 {
-    if (text.len >= width) return text;
-    const padding = (width - text.len) / 2;
-    var buf: [256]u8 = undefined;
-    @memset(buf[0..padding], ' ');
-    @memcpy(buf[padding..][0..text.len], text);
-    @memset(buf[padding + text.len ..][0 .. width - padding - text.len], ' ');
-    return buf[0..width];
-}
 
 /// Truncate text to fit within width, adding ellipsis if needed
 pub fn truncate(allocator: std.mem.Allocator, text: []const u8, max_width: usize) ![]const u8 {

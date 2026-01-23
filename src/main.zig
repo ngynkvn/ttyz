@@ -1,6 +1,5 @@
 const std = @import("std");
 const ttyz = @import("ttyz");
-const builtin = std.builtin;
 const ansi = ttyz.ansi;
 
 pub fn main(init: std.process.Init) !void {

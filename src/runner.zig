@@ -4,8 +4,6 @@
 //! All events (keyboard, mouse, resize, etc.) are unified into a single event channel.
 
 const std = @import("std");
-const posix = std.posix;
-const system = posix.system;
 
 const frame = @import("frame.zig");
 const Screen = @import("screen.zig").Screen;

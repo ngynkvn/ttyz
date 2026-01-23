@@ -892,7 +892,7 @@ pub fn stringWidth(s: []const u8) usize {
 
 /// Strip ANSI escape sequences from a string
 pub fn strip(allocator: std.mem.Allocator, s: []const u8) ![]u8 {
-    var result = std.ArrayList(u8).empty;
+    var result: std.ArrayList(u8) = .{};
     errdefer result.deinit(allocator);
 
     var i: usize = 0;

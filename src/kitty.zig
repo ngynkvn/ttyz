@@ -22,6 +22,7 @@
 //! try image.transmit(writer, pixels);
 //! ```
 
+const std = @import("std");
 const cc = std.ascii.control_code;
 
 /// Maximum chunk size for transmission (4096 bytes of base64 = 3072 bytes raw)
@@ -52,11 +53,15 @@ pub fn displayRgb(writer: *std.Io.Writer, pixels: []const u8, width: usize, heig
 
 /// Display a PNG file at the current cursor position.
 /// The path must be accessible by the terminal (use absolute paths).
-pub fn displayFile(writer: *std.Io.Writer, path: []const u8) !void {
+pub fn displayFile(io: std.Io, writer: *std.Io.Writer, path: []const u8) !void {
+    try (if (std.fs.path.isAbsolute(path))
+        std.Io.Dir.accessAbsolute(io, path, .{})
+    else
+        std.Io.Dir.cwd().access(io, path, .{}));
     var image = Image.init();
     image.setAction(.transmit_and_display);
-    image.setTransmission(.file);
     image.setFormat(.png);
+    image.setTransmission(.file);
     try image.transmitPath(writer, path);
 }
 
@@ -405,14 +410,16 @@ pub const Canvas = struct {
     }
 
     pub fn drawBox(self: *Canvas, x: usize, y: usize, width: usize, height: usize, color: u32) void {
-        const a, const g, const b, const r = std.mem.toBytes(color);
+        // Color format: 0xAABBGGRR (little-endian ABGR)
+        // toBytes on little-endian gives us [R, G, B, A]
+        const r, const g, const b, const a = std.mem.toBytes(color);
         for (0..width) |i| {
             for (0..height) |j| {
                 const idx = (y + j) * (self.width * 4) + (x + i) * 4;
                 if (idx + 3 < self.pixels.len) {
-                    self.pixels[idx] = b;
+                    self.pixels[idx] = r;
                     self.pixels[idx + 1] = g;
-                    self.pixels[idx + 2] = r;
+                    self.pixels[idx + 2] = b;
                     self.pixels[idx + 3] = a;
                 }
             }
@@ -535,5 +542,3 @@ test "chunked transmission splits large data" {
     }
     try std.testing.expect(count >= 2);
 }
-
-const std = @import("std");

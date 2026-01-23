@@ -6,7 +6,9 @@
 //! Note: This example manages Screen directly because Kitty graphics
 //! writes escape sequences outside the Frame buffer system.
 
+const std = @import("std");
 
+const ttyz = @import("ttyz");
 const kitty = ttyz.kitty;
 const draw = ttyz.draw;
 const frame = ttyz.frame;
@@ -82,7 +84,7 @@ pub fn main(init: std.process.Init) !void {
     try screen.print("\r\n\r\n4. PNG file from disk (testdata/mushroom.png):\r\n", .{});
     try screen.flush();
     writer = std.Io.Writer.fixed(&buf);
-    try kitty.displayFile(&writer, "testdata/mushroom.png");
+    try kitty.displayFile(io, &writer, "./testdata/mushroom.png");
     _ = try screen.write(writer.buffered());
     try screen.flush();
 
@@ -183,6 +185,3 @@ fn hsvToRgb(h: f32, s: f32, v: f32) struct { u8, u8, u8 } {
         @intFromFloat((b + m) * 255),
     };
 }
-
-const std = @import("std");
-const ttyz = @import("ttyz");

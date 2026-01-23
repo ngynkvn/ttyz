@@ -26,6 +26,9 @@ pub const Canvas = struct {
     pub fn init(width: usize, height: usize, canvas: []u8) !Canvas {
         return .{ .width = width, .height = height, .canvas = canvas };
     }
+    pub fn deinit(canvas: *Canvas, allocator: std.mem.Allocator) void {
+        allocator.free(canvas.canvas);
+    }
 
     pub fn drawBox(canvas: *Canvas, x: usize, y: usize, width: usize, height: usize, color: u32) !void {
         const a, const g, const b, const r = std.mem.toBytes(color);

@@ -6,6 +6,7 @@ const system = posix.system;
 pub const kitty = @import("kitty.zig");
 pub const draw = @import("draw.zig");
 pub const termdraw = @import("termdraw.zig");
+pub const layout = @import("layout.zig");
 
 pub const CONFIG = .{
     // Disable tty's SIGINT handling,
@@ -260,6 +261,14 @@ pub const Screen = struct {
         defer self.lock.unlock();
         return self.writer.interface.flush();
     }
+
+    pub fn clearScreen(self: *Screen) !void {
+        try self.writeAll(E.CLEAR_SCREEN);
+    }
+
+    pub fn home(self: *Screen) !void {
+        try self.writeAll(E.HOME);
+    }
 };
 
 pub const Event = union(enum) {
@@ -391,3 +400,7 @@ const Parser = struct {
         return .{ .cursor_pos = .{ .row = row, .col = col } };
     }
 };
+
+pub fn _cast(T: type, value: anytype) T {
+    return std.math.lossyCast(T, value);
+}

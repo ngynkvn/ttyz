@@ -2,8 +2,14 @@ const std = @import("std");
 const ttyz = @import("ttyz");
 const termdraw = ttyz.termdraw;
 const E = ttyz.E;
+const layout = ttyz.layout;
 
 pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
+    defer _ = gpa.deinit();
+    var arena = std.heap.ArenaAllocator.init(gpa.allocator());
+    defer arena.deinit();
+    const allocator = arena.allocator();
     // const tty = std.fs.File.stdout();
     const tty = try std.fs.openFileAbsolute("/dev/tty", .{ .mode = .read_write });
     // const ws = try ttyz.queryHandleSize(tty.handle);
@@ -19,7 +25,8 @@ pub fn main() !void {
     var w = tty.writer(&.{});
     try image.write(&w.interface);
 
-    var canvas = try ttyz.draw.Canvas.initAlloc(std.heap.page_allocator, 200, 200);
+    var canvas = try ttyz.draw.Canvas.initAlloc(allocator, 200, 200);
+    defer canvas.deinit(allocator);
     try canvas.drawBox(0, 0, 150, 150, 0xFFFFFFFF);
     try canvas.writeKitty(&w.interface);
 
@@ -29,17 +36,58 @@ pub fn main() !void {
     };
     try s.start();
     var last_event: ?ttyz.Event = null;
+    var L = layout.Context.init(allocator, &s);
+    defer L.deinit();
+
     while (s.running) {
-        try s.print(
-            E.CLEAR_SCREEN ++
-                E.HOME ++
-                "Hello, world!\n\r" ++
-                "Size: {}x{}\n\r" ++
-                "{?}\n\r",
-            .{ s.width, s.height, last_event },
-        );
-        try s.queryPos();
-        try termdraw.TermDraw.box(&s.writer.interface, .{ .x = 5, .y = 10, .width = 10, .height = 10 });
+        _ = L.begin();
+
+        L.OpenElement(.{
+            .id = 1,
+            .layoutDirection = .left_to_right,
+            .sizing = .As(.fit, .fit),
+            .padding = .All(4),
+        });
+        {
+            L.OpenElement(.{
+                .id = 2,
+                .sizing = .As(.Fixed(20), .Fixed(5)),
+                .backgroundColor = .{ 43, 255, 51, 255 },
+            });
+            // L.Text("Hello, world2");
+            L.CloseElement();
+
+            // L.OpenElement(.{
+            //     .id = 3,
+            //     .sizing = .As(.Fixed(20), .Fixed(10)),
+            //     .backgroundColor = .{ 43, 255, 51, 255 },
+            // });
+            // // L.Text("Hello, world3");
+            // L.CloseElement();
+        }
+        L.CloseElement();
+
+        try s.clearScreen();
+        try s.home();
+        const renderCommands = try L.end();
+        defer allocator.free(renderCommands);
+        for (1.., renderCommands) |i, command| {
+            const ui = command.node.ui;
+            _ = i;
+            switch (command.node.tag) {
+                .text => {
+                    try s.print(E.GOTO ++ "{s}\n", .{ ui.y, ui.x, command.data });
+                },
+                .box => {
+                    try termdraw.TermDraw.box(
+                        &s.writer.interface,
+                        .{ .x = ui.x, .y = ui.y, .width = ui.width, .height = ui.height },
+                    );
+                },
+            }
+        }
+
+        // try termdraw.TermDraw.box(&s.writer.interface, .{ .x = 5, .y = 10, .width = 10, .height = 10 });
         while (s.pollEvent()) |event| {
             switch (event) {
                 .key => |key| {

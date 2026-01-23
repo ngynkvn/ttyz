@@ -27,11 +27,7 @@ pub fn main() !void {
 
     const path = try std.fs.path.join(allocator, &.{ cwd, "testdata/mushroom.png" });
     defer allocator.free(path);
-    var image = ttyz.kitty.Image.default;
-    image.params.a = 'T';
-    image.params.t = 'f';
-    image.params.f = 100;
-    image.filePath(path);
+    var image = ttyz.kitty.Image.with(.{ .a = 'T', .t = 'f', .f = 100 }, path);
     try image.write(&w.interface);
 
     var canvas = try ttyz.draw.Canvas.initAlloc(allocator, 200, 200);

@@ -17,6 +17,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "input", .desc = "Run the input handling example", .path = "examples" },
         .{ .name = "progress", .desc = "Run the progress bar example", .path = "examples" },
         .{ .name = "colors", .desc = "Run the color showcase example", .path = "examples" },
+        .{ .name = "kitty", .desc = "Run the Kitty graphics protocol demo", .path = "examples" },
     };
 
     const test_step = b.step("test", "Run tests");

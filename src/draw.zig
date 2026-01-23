@@ -27,11 +27,8 @@ pub const Canvas = struct {
 
     /// Write the canvas to the terminal using the Kitty graphics protocol.
     /// The image is transmitted directly and displayed at the current cursor position.
-    pub fn writeKitty(canvas: *Canvas, writer: *std.Io.Writer) !void {
-        var image = kitty.Image.with(.{ .a = 'T', .f = 32, .t = 'd' }, canvas.canvas);
-        image.control_data.s = canvas.width;
-        image.control_data.v = canvas.height;
-        try image.write(writer);
+    pub fn writeKitty(canvas: *Canvas, writer: anytype) !void {
+        try kitty.displayRgba(writer, canvas.canvas, canvas.width, canvas.height);
     }
 
     /// Allocate a new canvas with the given dimensions.
@@ -69,7 +66,7 @@ pub const Canvas = struct {
 
     /// Write the raw canvas data as base64 to the writer.
     /// This is a low-level function; prefer `writeKitty` for terminal output.
-    pub fn write(canvas: *Canvas, writer: *std.Io.Writer) !void {
+    pub fn write(canvas: *Canvas, writer: anytype) !void {
         try base64.standard.Encoder.encodeWriter(writer, canvas.canvas);
     }
 };

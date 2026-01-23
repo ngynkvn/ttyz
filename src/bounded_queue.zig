@@ -13,28 +13,21 @@
 const std = @import("std");
 
 /// A simple bounded ring buffer queue with a fixed capacity.
-/// This is a drop-in replacement for std.Deque for fixed-size buffers.
 pub fn BoundedQueue(comptime T: type, comptime capacity: usize) type {
     return struct {
         const Self = @This();
-
-        /// Internal storage buffer.
         buffer: [capacity]T = undefined,
-        /// Index of the front element.
         head: usize = 0,
-        /// Index where the next element will be inserted.
         tail: usize = 0,
-        /// Current number of elements in the queue.
         len: usize = 0,
 
-        /// Create a new empty queue.
         pub fn init() Self {
             return .{};
         }
 
         /// Add an item to the back of the queue.
         /// Returns error.Overflow if the queue is full.
-        pub fn pushBack(self: *Self, item: T) error{Overflow}!void {
+        pub fn pushBack(self: *Self, item: T) !void {
             if (self.len >= capacity) return error.Overflow;
             self.buffer[self.tail] = item;
             self.tail = (self.tail + 1) % capacity;
@@ -42,7 +35,7 @@ pub fn BoundedQueue(comptime T: type, comptime capacity: usize) type {
         }
 
         /// Alias for pushBack for API compatibility.
-        pub fn pushBackBounded(self: *Self, item: T) error{Overflow}!void {
+        pub fn pushBackBounded(self: *Self, item: T) !void {
             return self.pushBack(item);
         }
 

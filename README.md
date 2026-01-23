@@ -43,26 +43,62 @@ exe.root_module.addImport("ttyz", ttyz.module("ttyz"));
 
 ## Quick Start
 
+The recommended way to use ttyz is with the `Runner` pattern, which handles the main loop, event processing, and Frame rendering:
+
 ```zig
 const std = @import("std");
 const ttyz = @import("ttyz");
-const E = ttyz.E;
 
-pub fn main() !void {
-    // Initialize raw mode (enters alternate screen, hides cursor)
-    var screen = try ttyz.Screen.init();
+const MyApp = struct {
+    message: []const u8 = "Hello, ttyz!",
+
+    // Return false to exit, true to continue
+    pub fn handleEvent(self: *MyApp, event: ttyz.Event) bool {
+        _ = self;
+        return switch (event) {
+            .key => |k| k != .q and k != .Q,
+            .interrupt => false,
+            else => true,
+        };
+    }
+
+    // Render using the Frame API
+    pub fn render(self: *MyApp, f: *ttyz.Frame) !void {
+        // Center the message
+        const cx = (f.buffer.width -| @as(u16, @intCast(self.message.len))) / 2;
+        const cy = f.buffer.height / 2;
+        f.setString(cx, cy, self.message, .{ .bold = true }, .default, .default);
+
+        // Footer
+        f.setString(0, f.buffer.height - 1, "Press Q to quit", .{ .dim = true }, .default, .default);
+    }
+};
+
+pub fn main(init: std.process.Init) !void {
+    var app = MyApp{};
+    try ttyz.Runner(MyApp).run(&app, init, ttyz.Screen.Options.default);
+}
+```
+
+### Low-Level API
+
+For more control, you can use the Screen API directly:
+
+```zig
+const std = @import("std");
+const ttyz = @import("ttyz");
+const ansi = ttyz.ansi;
+
+pub fn main(init: std.process.Init) !void {
+    var screen = try ttyz.Screen.init(init.io, ttyz.Screen.Options.default);
     defer _ = screen.deinit() catch {};
 
-    // Start the I/O thread for event handling
-    try screen.start();
-
     while (screen.running) {
-        // Process events
+        screen.readAndQueueEvents();
+
         while (screen.pollEvent()) |event| {
             switch (event) {
-                .key => |key| {
-                    if (key == .q) screen.running = false;
-                },
+                .key => |key| if (key == .q) { screen.running = false; },
                 .mouse => |mouse| {
                     try screen.print("Mouse at {},{}\n", .{mouse.row, mouse.col});
                 },
@@ -70,12 +106,11 @@ pub fn main() !void {
             }
         }
 
-        // Draw
         try screen.home();
-        try screen.print("Press 'q' to quit. Screen: {}x{}\n", .{screen.width, screen.height});
+        try screen.print(ansi.bold ++ "ttyz" ++ ansi.reset ++ " - {}x{}\n", .{screen.width, screen.height});
         try screen.flush();
 
-        std.Thread.sleep(std.time.ns_per_s / 60);
+        init.io.sleep(std.Io.Duration.fromMilliseconds(16), .awake) catch {};
     }
 }
 ```
@@ -87,57 +122,109 @@ pub fn main() !void {
 The main interface for terminal I/O:
 
 ```zig
-var screen = try ttyz.Screen.init();
+var screen = try ttyz.Screen.init(io, ttyz.Screen.Options.default);
 defer _ = screen.deinit() catch {};
 
-try screen.start();              // Start I/O thread
-try screen.goto(row, col);       // Move cursor
-try screen.print("{}", .{val});  // Formatted output
-try screen.write("text");        // Raw output
-try screen.clearScreen();        // Clear screen
-try screen.flush();              // Flush output buffer
+screen.readAndQueueEvents();       // Poll for input events
+try screen.goto(row, col);         // Move cursor
+try screen.print("{}", .{val});    // Formatted output
+_ = try screen.write("text");      // Raw output
+try screen.clearScreen();          // Clear screen
+try screen.flush();                // Flush output buffer
 ```
 
-### Escape Sequences (`ttyz.E`)
+### ANSI Escape Sequences (`ttyz.ansi`)
 
-VT100/xterm escape sequence constants:
+Comprehensive ANSI escape sequence constants and functions:
 
 ```zig
+const ansi = ttyz.ansi;
+
 // Cursor control
-E.HOME, E.GOTO, E.CURSOR_UP, E.CURSOR_DOWN
+ansi.cursor_home    // Move to (1,1)
+ansi.cursor_hide    // Hide cursor
+ansi.cursor_show    // Show cursor
+ansi.goto_fmt       // Format string for goto: "\x1b[{d};{d}H"
 
 // Screen control
-E.CLEAR_SCREEN, E.ENTER_ALT_SCREEN, E.EXIT_ALT_SCREEN
+ansi.erase_screen       // Clear entire screen
+ansi.alt_buffer_enable  // Enter alternate screen
+ansi.alt_buffer_disable // Exit alternate screen
 
-// Colors and styles
-E.FG_RED, E.BG_BLUE, E.BOLD, E.UNDERLINE, E.RESET_STYLE
-E.SET_FG_256, E.SET_TRUCOLOR  // 256-color and RGB
+// Styles (compile-time string concatenation)
+ansi.bold, ansi.faint, ansi.italic, ansi.underline
+ansi.reverse, ansi.crossed_out, ansi.reset
 
-// Mouse and focus
-E.ENABLE_MOUSE_TRACKING, E.ENABLE_FOCUS_EVENTS
+// Colors
+ansi.fg.red, ansi.fg.green, ansi.fg.blue, ...
+ansi.bg.red, ansi.bg.green, ansi.bg.blue, ...
+ansi.fg_256_fmt     // Format for 256-color: "\x1b[38;5;{d}m"
+ansi.fg_rgb_fmt     // Format for true color: "\x1b[38;2;{};{};{}m"
+
+// Mouse tracking
+ansi.mouse_tracking_enable, ansi.mouse_tracking_disable
 ```
 
-### Layout System (`ttyz.layout`)
+Usage example:
+```zig
+try screen.print(ansi.bold ++ ansi.fg.green ++ "Success!" ++ ansi.reset, .{});
+try screen.print(ansi.fg_256_fmt, .{196});  // Color 196
+try screen.print(ansi.fg_rgb_fmt, .{255, 128, 0});  // Orange
+```
 
-Immediate-mode UI layout inspired by Clay:
+### Frame and Buffer (`ttyz.Frame`, `ttyz.Buffer`)
+
+Frame-based rendering with a cell buffer. This is the recommended approach for most TUI applications:
 
 ```zig
-const Root = struct {
-    pub var props = layout.NodeProps{
-        .sizing = .As(.fit, .fit),
-        .layout_direction = .left_right,
-        .padding = .All(1),
-    };
+const Frame = ttyz.Frame;
+const Buffer = ttyz.Buffer;
+const Color = ttyz.frame.Color;
+const Layout = ttyz.frame.Layout;
 
-    pub fn render(ctx: *layout.Context) void {
-        ctx.OpenElement(Child.props);
-        Child.render(ctx);
-        ctx.CloseElement();
-    }
-};
+// In your render function:
+pub fn render(self: *MyApp, f: *Frame) !void {
+    // Draw text with style and color
+    f.setString(x, y, "Hello", .{ .bold = true }, Color.green, .default);
 
-var ctx = layout.Context.init(allocator, &screen);
-const commands = try ctx.render(Root);
+    // Draw a box
+    f.drawRect(ttyz.Rect{ .x = 0, .y = 0, .width = 20, .height = 5 }, .single);
+
+    // Fill a region
+    f.fillRect(area, .{ .char = ' ', .bg = Color.blue });
+
+    // Use Layout for automatic sizing
+    const header, const content, const footer = f.areas(3, Layout(3).vertical(.{
+        .{ .length = 1 },  // Fixed 1 row
+        .{ .fill = 1 },    // Fill remaining space
+        .{ .length = 1 },  // Fixed 1 row
+    }));
+
+    // Draw in each area
+    f.setString(header.x, header.y, "Header", .{}, .default, .default);
+}
+```
+
+### Layout System (`ttyz.frame.Layout`)
+
+Declarative layout for dividing screen space:
+
+```zig
+const Layout = ttyz.frame.Layout;
+
+// Vertical layout: header, content, footer
+const areas = Layout(3).vertical(.{
+    .{ .length = 2 },  // 2 rows
+    .{ .fill = 1 },    // Fill remaining
+    .{ .length = 1 },  // 1 row
+}).areas(frame.rect());  // Returns [3]Rect
+
+// Horizontal layout with spacing
+const cols = Layout(3).horizontal(.{
+    .{ .fill = 1 },
+    .{ .fill = 2 },  // 2x the width of others
+    .{ .fill = 1 },
+}).withSpacing(1).areas(content);
 ```
 
 ### Color Formatting (`ttyz.colorz`)
@@ -208,6 +295,32 @@ const padded = ttyz.text.padRight("Hi", 10, &buf);  // "Hi        "
 
 // Truncation with ellipsis
 const truncated = try ttyz.text.truncate(allocator, "Long text", 7);  // "Long..."
+```
+
+### Testing (`ttyz.TestCapture`)
+
+Test your TUI code without a real terminal:
+
+```zig
+const std = @import("std");
+const ttyz = @import("ttyz");
+
+test "Frame renders text correctly" {
+    const capture = try ttyz.TestCapture.init(std.testing.allocator, 80, 24);
+    defer capture.deinit();
+
+    var buffer = try ttyz.Buffer.init(std.testing.allocator, 80, 24);
+    defer buffer.deinit();
+
+    var frame = ttyz.Frame.init(&buffer);
+    frame.setString(0, 0, "Hello", .{}, .default, .default);
+    try frame.render(capture.screen());
+    try capture.screen().flush();
+
+    // Verify output
+    try std.testing.expect(capture.contains("Hello"));
+    try std.testing.expectEqual(@as(usize, 1), capture.count("Hello"));
+}
 ```
 
 ## Events

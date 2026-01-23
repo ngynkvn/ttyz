@@ -20,6 +20,7 @@ pub const CONFIG = .{
 };
 
 const cc = std.ascii.control_code;
+const ascii = std.ascii;
 // zig fmt: on
 
 var orig_termios: ?posix.termios = null;
@@ -36,6 +37,10 @@ pub const Screen = struct {
     event_queue: std.Deque(Event),
     io_thread: ?std.Thread,
     running: bool,
+    // TODO: app state
+    toggle: bool,
+    textinput_buffer: [32]u8,
+    textinput: std.ArrayList(u8),
     pub const Error = std.posix.WriteError;
 
     /// Enter "raw mode", returning a struct that wraps around the provided tty file
@@ -95,6 +100,9 @@ pub const Screen = struct {
             .io_thread = null,
             .event_buffer = undefined,
             .event_queue = .initBuffer(&self.event_buffer),
+            .toggle = false,
+            .textinput_buffer = std.mem.zeroes([32]u8),
+            .textinput = std.ArrayList(u8).initBuffer(&self.textinput_buffer),
         };
         const ws = try self.querySize();
         self.width = ws.col;
@@ -244,13 +252,18 @@ pub const Screen = struct {
 pub const Event = union(enum) {
     // ASCII letters
     pub const Key = enum(u8) {
-        esc = 27,
-        arrow_up,
-        arrow_down,
-        arrow_right,
-        arrow_left,
         // zig fmt: off
-        @"0" = 48, @"1" = 49, @"2" = 50, @"3" = 51, @"4" = 52, @"5" = 53, @"6" = 54, @"7" = 55, @"8" = 56, @"9" = 57,
+        backspace = 8, tab = 9,
+        enter = 10, esc = 27,
+        carriage_return = 13,
+
+        arrow_up, arrow_down,
+        arrow_right, arrow_left,
+
+        @"0" = 48, @"1" = 49, @"2" = 50, 
+        @"3" = 51, @"4" = 52, @"5" = 53, 
+        @"6" = 54, @"7" = 55, @"8" = 56, 
+        @"9" = 57,
 
         A = 65, B = 66, C = 67, D = 68, E = 69, F = 70, G = 71, H = 72, 
         I = 73, J = 74, K = 75, L = 76, M = 77, N = 78, O = 79, P = 80, 
@@ -259,9 +272,8 @@ pub const Event = union(enum) {
         a = 97, b = 98, c = 99, d = 100, e = 101, f = 102, g = 103, h = 104, 
         i = 105, j = 106, k = 107, l = 108, m = 109, n = 110, o = 111, p = 112, 
         q = 113, r = 114, s = 115, t = 116, u = 117, v = 118, w = 119, x = 120, y = 121, z = 122,
-
-        _,
         // zig fmt: on
+        _,
         fn arrow(c: u8) Key {
             return switch (c) {
                 'A' => .arrow_up,
@@ -289,15 +301,19 @@ const Parser = struct {
         defer r.tossBuffered();
         state: switch (ParseState.start) {
             .start => {
+                const c = try r.takeByte();
+                if (ascii.isPrint(c) or ascii.isWhitespace(c)) {
+                    return .{ .key = @enumFromInt(c) };
+                }
                 return switch (try r.takeByte()) {
-                    'a'...'z', 'A'...'Z', '0'...'9' => |c| .{ .key = @enumFromInt(c) },
                     3 => .interrupt,
                     cc.esc => continue :state .esc,
                     else => break :state,
                 };
             },
             .esc => {
-                return switch (try r.takeByte()) {
+                const c = r.takeByte() catch |e| if (e == error.EndOfStream) cc.esc else break :state;
+                return switch (c) {
                     '[' => continue :state .csi,
                     else => break :state,
                 };

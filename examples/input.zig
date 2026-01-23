@@ -115,15 +115,6 @@ const InputDemo = struct {
 };
 
 pub fn main(init: std.process.Init) !void {
-    // Allocate buffers for Screen
-    var writer_buf: [4096]u8 = undefined;
-    var textinput_buf: [32]u8 = undefined;
-    var event_buf: [32]ttyz.Event = undefined;
-
     var app = InputDemo{};
-    try ttyz.Runner(InputDemo).runWithOptions(&app, init, .{
-        .writer = &writer_buf,
-        .textinput = &textinput_buf,
-        .events = &event_buf,
-    }, .{ .fps = 60 });
+    try ttyz.Runner(InputDemo).runWithOptions(&app, init, ttyz.Screen.Options.default, .{ .fps = 60 });
 }

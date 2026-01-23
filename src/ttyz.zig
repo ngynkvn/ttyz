@@ -26,7 +26,7 @@
 //!
 //! pub fn main(init: std.process.Init) !void {
 //!     var app = MyApp{};
-//!     try ttyz.Runner(MyApp).run(&app, init);
+//!     try ttyz.Runner(MyApp).run(&app, init, ttyz.Screen.Options.default);
 //! }
 //! ```
 
@@ -41,7 +41,6 @@ pub const runner = @import("runner.zig");
 pub const Screen = screen.Screen;
 pub const Event = event.Event;
 pub const Runner = runner.Runner;
-pub const CONFIG = screen.CONFIG;
 pub const panic = screen.panic;
 pub const panicTty = screen.panicTty;
 pub const queryHandleSize = screen.queryHandleSize;

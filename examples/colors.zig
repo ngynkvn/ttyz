@@ -170,15 +170,6 @@ fn hsvToRgb(h: f32, s: f32, v: f32) [3]u8 {
 }
 
 pub fn main(init: std.process.Init) !void {
-    // Allocate buffers for Screen
-    var writer_buf: [4096]u8 = undefined;
-    var textinput_buf: [32]u8 = undefined;
-    var event_buf: [32]ttyz.Event = undefined;
-
     var app = ColorDemo{};
-    try ttyz.Runner(ColorDemo).run(&app, init, .{
-        .writer = &writer_buf,
-        .textinput = &textinput_buf,
-        .events = &event_buf,
-    });
+    try ttyz.Runner(ColorDemo).run(&app, init, ttyz.Screen.Options.default);
 }

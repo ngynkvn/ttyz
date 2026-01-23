@@ -11,14 +11,6 @@ const parser = @import("parser.zig");
 const BoundedQueue = @import("bounded_queue.zig").BoundedQueue;
 const Event = @import("event.zig").Event;
 
-/// Library configuration constants.
-pub const CONFIG = .{
-    .HANDLE_SIGINT = true,
-    .START_SEQUENCE = E.ENTER_ALT_SCREEN ++ E.CURSOR_INVISIBLE ++ E.ENABLE_MOUSE_TRACKING,
-    .EXIT_SEQUENCE = E.EXIT_ALT_SCREEN ++ E.CURSOR_VISIBLE ++ E.DISABLE_MOUSE_TRACKING,
-    .TTY_PATH = "/dev/tty",
-};
-
 var orig_termios: ?posix.termios = null;
 var tty_fd: ?posix.fd_t = null;
 
@@ -38,11 +30,40 @@ pub const Screen = struct {
         sleep: usize = 0,
     };
 
-    /// Buffers required by Screen. Allocate these near main and pass to init.
-    pub const Buffers = struct {
+    /// Configuration options for Screen initialization.
+    pub const Options = struct {
+        /// Buffer for the output writer.
         writer: []u8,
+        /// Buffer for text input accumulation.
         textinput: []u8,
+        /// Buffer for the event queue.
         events: []Event,
+        /// Path to the TTY device.
+        tty_path: []const u8 = "/dev/tty",
+        /// Whether to handle SIGINT (Ctrl+C) as an event instead of terminating.
+        handle_sigint: bool = true,
+        /// Whether to use alternate screen buffer.
+        alt_screen: bool = true,
+        /// Whether to hide the cursor.
+        hide_cursor: bool = true,
+        /// Whether to enable mouse tracking.
+        mouse_tracking: bool = true,
+
+        // Default buffer sizes
+        pub const default_writer_size = 4096;
+        pub const default_textinput_size = 32;
+        pub const default_events_size = 32;
+
+        /// Default options using static buffers.
+        pub const default: Options = .{
+            .writer = &default_writer_buf,
+            .textinput = &default_textinput_buf,
+            .events = &default_events_buf,
+        };
+
+        var default_writer_buf: [default_writer_size]u8 = undefined;
+        var default_textinput_buf: [default_textinput_size]u8 = undefined;
+        var default_events_buf: [default_events_size]Event = undefined;
     };
 
     pub const Signals = struct {
@@ -80,15 +101,17 @@ pub const Screen = struct {
     textinput: std.ArrayList(u8),
     /// ANSI escape sequence parser for input.
     input_parser: parser.Parser,
+    /// Stored options for cleanup.
+    options: Options,
 
     /// Enter "raw mode", returning a struct that wraps around the provided tty file
-    pub fn init(io: std.Io, buffers: Buffers) !Screen {
-        const f = try std.Io.Dir.openFileAbsolute(io, CONFIG.TTY_PATH, .{ .mode = .read_write });
-        return try initFrom(io, f, buffers);
+    pub fn init(io: std.Io, options: Options) !Screen {
+        const f = try std.Io.Dir.openFileAbsolute(io, options.tty_path, .{ .mode = .read_write });
+        return try initFrom(io, f, options);
     }
 
     /// Initialize a Screen from an existing TTY file descriptor.
-    pub fn initFrom(io: std.Io, f: std.Io.File, buffers: Buffers) !Screen {
+    pub fn initFrom(io: std.Io, f: std.Io.File, options: Options) !Screen {
         const fd = f.handle;
         tty_fd = fd;
         const orig = try posix.tcgetattr(fd);
@@ -99,7 +122,7 @@ pub const Screen = struct {
         raw.lflag.ECHO   = false;
         raw.lflag.ICANON = false;
         raw.lflag.IEXTEN = false;
-        raw.lflag.ISIG   = !CONFIG.HANDLE_SIGINT;
+        raw.lflag.ISIG   = !options.handle_sigint;
         raw.iflag.IXON   = false;
         raw.iflag.ICRNL  = false;
         raw.iflag.BRKINT = false;
@@ -122,12 +145,13 @@ pub const Screen = struct {
             .width = 0,
             .height = 0,
             .lock = .{},
-            .writer = f.writerStreaming(io, buffers.writer),
+            .writer = f.writerStreaming(io, options.writer),
             .io_thread = null,
-            .event_queue = BoundedQueue(Event).init(buffers.events),
+            .event_queue = BoundedQueue(Event).init(options.events),
             .toggle = false,
-            .textinput = std.ArrayList(u8).initBuffer(buffers.textinput),
+            .textinput = std.ArrayList(u8).initBuffer(options.textinput),
             .input_parser = parser.Parser.init(),
+            .options = options,
         };
 
         const ws = try self.querySize();
@@ -135,8 +159,35 @@ pub const Screen = struct {
         self.height = ws.row;
         std.log.debug("windowsize is {}x{}; xpixel={d}, ypixel={d}", .{ self.width, self.height, ws.xpixel, ws.ypixel });
 
-        _ = try self.writeRawDirect(CONFIG.START_SEQUENCE);
+        _ = try self.writeRawDirect(self.startSequence());
         return self;
+    }
+
+    /// Build the start sequence based on options.
+    fn startSequence(self: *Screen) []const u8 {
+        // Use comptime string building for common cases
+        if (self.options.alt_screen and self.options.hide_cursor and self.options.mouse_tracking) {
+            return E.ENTER_ALT_SCREEN ++ E.CURSOR_INVISIBLE ++ E.ENABLE_MOUSE_TRACKING;
+        } else if (self.options.alt_screen and self.options.hide_cursor) {
+            return E.ENTER_ALT_SCREEN ++ E.CURSOR_INVISIBLE;
+        } else if (self.options.alt_screen) {
+            return E.ENTER_ALT_SCREEN;
+        } else {
+            return "";
+        }
+    }
+
+    /// Build the exit sequence based on options.
+    fn exitSequence(self: *Screen) []const u8 {
+        if (self.options.alt_screen and self.options.hide_cursor and self.options.mouse_tracking) {
+            return E.EXIT_ALT_SCREEN ++ E.CURSOR_VISIBLE ++ E.DISABLE_MOUSE_TRACKING;
+        } else if (self.options.alt_screen and self.options.hide_cursor) {
+            return E.EXIT_ALT_SCREEN ++ E.CURSOR_VISIBLE;
+        } else if (self.options.alt_screen) {
+            return E.EXIT_ALT_SCREEN;
+        } else {
+            return "";
+        }
     }
 
     /// Write bytes directly to terminal (bypasses buffer).
@@ -150,7 +201,7 @@ pub const Screen = struct {
     pub fn deinit(self: *Screen) !posix.E {
         self.running = false;
         if (self.io_thread) |thread| thread.join();
-        _ = try self.writeRawDirect(CONFIG.EXIT_SEQUENCE);
+        _ = try self.writeRawDirect(self.exitSequence());
         const rc = if (orig_termios) |orig|
             system.tcsetattr(self.fd, .FLUSH, &orig)
         else
@@ -333,7 +384,8 @@ pub const panic = std.debug.FullPanic(panicTty);
 
 pub fn panicTty(msg: []const u8, ra: ?usize) noreturn {
     if (tty_fd) |fd| {
-        _ = system.write(fd, CONFIG.EXIT_SEQUENCE.ptr, CONFIG.EXIT_SEQUENCE.len);
+        const exit_seq = E.EXIT_ALT_SCREEN ++ E.CURSOR_VISIBLE ++ E.DISABLE_MOUSE_TRACKING;
+        _ = system.write(fd, exit_seq.ptr, exit_seq.len);
         if (orig_termios) |orig| _ = system.tcsetattr(fd, .FLUSH, &orig);
     }
     std.log.err("panic: {s}", .{msg});

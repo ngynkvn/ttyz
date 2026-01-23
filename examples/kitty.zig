@@ -20,16 +20,7 @@ pub fn main(init: std.process.Init) !void {
     const io = init.io;
     const allocator = init.arena.allocator();
 
-    // Allocate buffers for Screen
-    var writer_buf: [4096]u8 = undefined;
-    var textinput_buf: [32]u8 = undefined;
-    var event_buf: [32]ttyz.Event = undefined;
-
-    var screen = try ttyz.Screen.init(io, .{
-        .writer = &writer_buf,
-        .textinput = &textinput_buf,
-        .events = &event_buf,
-    });
+    var screen = try ttyz.Screen.init(io, ttyz.Screen.Options.default);
     defer _ = screen.deinit() catch {};
 
     // Create images

@@ -51,7 +51,8 @@ pub fn main(init: std.process.Init) !void {
     try screen.flush();
 
     // Get a writer for kitty output
-    var buf: [32768]u8 = undefined;
+    // Buffer needs to hold base64-encoded RGBA data (~4/3 of raw size) plus protocol overhead
+    var buf: [65536]u8 = undefined;
     var writer = std.Io.Writer.fixed(&buf);
 
     try gradient.writeKitty(&writer);

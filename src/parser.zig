@@ -426,11 +426,7 @@ pub const Parser = struct {
             .param => self.doParam(byte),
             .osc_start => self.clearOsc(),
             .osc_put => self.oscPut(byte),
-            .esc_dispatch, .csi_dispatch => {
-                self.final_char = byte;
-                self.finalizeParams();
-            },
-            .hook => {
+            .esc_dispatch, .csi_dispatch, .hook => {
                 self.final_char = byte;
                 self.finalizeParams();
             },

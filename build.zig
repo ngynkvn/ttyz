@@ -24,20 +24,34 @@ pub fn build(b: *std.Build) void {
 
     b.installArtifact(ttyz_exe);
 
-    // Demo executable
-    const demo_exe = b.addExecutable(.{
-        .name = "demo",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("examples/demo.zig"),
-            .target = target,
-            .optimize = optimize,
-            .imports = &.{
-                .{ .name = "ttyz", .module = ttyz_mod },
-            },
-        }),
-    });
+    // Example executables
+    const examples = [_]struct { name: []const u8, desc: []const u8 }{
+        .{ .name = "demo", .desc = "Run the interactive demo" },
+        .{ .name = "hello", .desc = "Run the hello world example" },
+        .{ .name = "input", .desc = "Run the input handling example" },
+        .{ .name = "progress", .desc = "Run the progress bar example" },
+        .{ .name = "colors", .desc = "Run the color showcase example" },
+    };
 
-    b.installArtifact(demo_exe);
+    for (examples) |example| {
+        const exe = b.addExecutable(.{
+            .name = example.name,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path(b.fmt("examples/{s}.zig", .{example.name})),
+                .target = target,
+                .optimize = optimize,
+                .imports = &.{
+                    .{ .name = "ttyz", .module = ttyz_mod },
+                },
+            }),
+        });
+        b.installArtifact(exe);
+
+        const run_cmd = b.addRunArtifact(exe);
+        run_cmd.step.dependOn(b.getInstallStep());
+        const step = b.step(example.name, example.desc);
+        step.dependOn(&run_cmd.step);
+    }
 
     // Run main app
     const run_step = b.step("run", "Run the app");
@@ -48,12 +62,6 @@ pub fn build(b: *std.Build) void {
     if (b.args) |args| {
         run_cmd.addArgs(args);
     }
-
-    // Run demo
-    const demo_step = b.step("demo", "Run the demo application");
-    const demo_cmd = b.addRunArtifact(demo_exe);
-    demo_step.dependOn(&demo_cmd.step);
-    demo_cmd.step.dependOn(b.getInstallStep());
 
     // Tests
     const mod_tests = b.addTest(.{

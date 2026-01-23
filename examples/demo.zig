@@ -70,6 +70,7 @@ const Demo = struct {
     }
 
     pub fn render(self: *Demo, s: *ttyz.Screen) !void {
+        try s.clearScreen();
         try s.home();
 
         // Draw header

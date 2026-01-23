@@ -40,6 +40,8 @@ const ProgressDemo = struct {
             return;
         }
 
+        try screen.clearScreen();
+        try screen.home();
         try screen.print(ansi.bold ++ "Progress Demo" ++ ansi.reset ++ "\r\n\r\n", .{});
 
         // Main progress bar

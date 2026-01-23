@@ -757,6 +757,7 @@ pub fn panicTty(msg: []const u8, ra: ?usize) noreturn {
 /// }
 /// ```
 pub fn Runner(comptime T: type) type {
+    comptime checkHasFns(T);
     return struct {
         const Self = @This();
 
@@ -765,7 +766,8 @@ pub fn Runner(comptime T: type) type {
             /// Target frames per second (controls sleep duration between frames).
             fps: u32 = 30,
             /// Whether to clear the screen before each render.
-            clear_screen: bool = true,
+            /// Default is false to avoid flicker - apps should overwrite content.
+            clear_screen: bool = false,
         };
 
         /// Run the event/render loop with the given app.
@@ -820,6 +822,17 @@ pub fn Runner(comptime T: type) type {
     };
 }
 
+fn checkHasFns(comptime T: type) void {
+    _ = T;
+    comptime {
+        // const fn_list = [_][]const u8{ "init", "handleEvent", "render", "deinit" };
+        // for (fn_list) |fn_name| {
+        //     if (!@hasDecl(T, fn_name)) {
+        //         @compileError(std.fmt.comptimePrint("T must have a {s} function", .{fn_name}));
+        //     }
+        // }
+    }
+}
 test {
     std.testing.refAllDecls(@This());
 }

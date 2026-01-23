@@ -20,6 +20,9 @@ const Color = frame.Color;
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
     const allocator = init.arena.allocator();
+    var args = init.minimal.args.iterate();
+    _ = args.skip();
+    const path = args.next() orelse "./testdata/mushroom.png";
 
     var screen = try ttyz.Screen.init(io, ttyz.Screen.Options.default);
     defer _ = screen.deinit() catch {};
@@ -81,10 +84,10 @@ pub fn main(init: std.process.Init) !void {
     try screen.flush();
 
     // 4. PNG file
-    try screen.print("\r\n\r\n4. PNG file from disk (testdata/mushroom.png):\r\n", .{});
+    try screen.print("\r\n\r\n4. PNG file from disk ({s}):\r\n", .{path});
     try screen.flush();
     writer = std.Io.Writer.fixed(&buf);
-    try kitty.displayFile(io, &writer, "./testdata/mushroom.png");
+    try kitty.displayFile(io, &writer, path);
     _ = try screen.write(writer.buffered());
     try screen.flush();
 
@@ -122,12 +125,11 @@ fn createGradient(allocator: std.mem.Allocator) !draw.Canvas {
 fn createCheckerboard(allocator: std.mem.Allocator) !draw.Canvas {
     const size: usize = 100;
     var canvas = try draw.Canvas.initAlloc(allocator, size, size);
-    const cell_size: usize = 10;
-    _ = cell_size; // autofix
+    const cell_size: usize = 16;
     for (0..size) |y| {
-        const cy = y;
+        const cy = y / cell_size;
         for (0..size) |x| {
-            const cx = x;
+            const cx = x / cell_size;
             const is_dark = (cx + cy) % 2 == 0;
             if (is_dark) {
                 canvas.setPixel(x, y, 50, 50, 80, 255);

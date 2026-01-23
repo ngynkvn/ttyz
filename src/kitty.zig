@@ -78,6 +78,18 @@ pub fn displayFileAlloc(allocator: std.mem.Allocator, writer: *std.Io.Writer, pa
     try image.transmit(writer, file_contents);
 }
 
+/// Display a PNG file by sending the path to the terminal (t=f mode).
+/// The terminal reads the file directly from the filesystem.
+/// Requires: absolute path, terminal must have filesystem access.
+/// Use displayFile() instead for better compatibility (works over SSH, etc).
+pub fn displayFilePath(writer: *std.Io.Writer, path: []const u8) !void {
+    var image = Image.init();
+    image.setAction(.transmit_and_display);
+    image.setFormat(.png);
+    image.setTransmission(.file);
+    try image.transmitPath(writer, path);
+}
+
 /// Delete all images from the terminal.
 pub fn deleteAll(writer: *std.Io.Writer) !void {
     var cmd = Image.init();

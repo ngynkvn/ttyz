@@ -71,6 +71,7 @@ pub const Screen = struct {
         }
     };
 
+    io: std.Io,
     file: std.Io.File,
     /// The underlying TTY file descriptor.
     fd: posix.fd_t,
@@ -84,8 +85,10 @@ pub const Screen = struct {
     writer: std.Io.File.Writer,
     /// Buffer for the writer.
     writer_buffer: [4096]u8,
-    /// Queue for pending input events.
-    event_queue: BoundedQueue(Event, 32),
+    ///
+    evq: std.Io.Queue(Event),
+    /// Buffer for events.
+    event_buffer: [32]Event,
     /// Background I/O thread handle.
     io_thread: ?std.Thread,
     /// Set to false to stop the main loop and I/O thread.
@@ -144,6 +147,7 @@ pub const Screen = struct {
 
         var self: Screen = undefined;
         self = .{
+            .io = io,
             .file = f,
             .fd = fd,
             .running = true,
@@ -154,12 +158,15 @@ pub const Screen = struct {
             .writer_buffer = undefined,
             // input
             .io_thread = null,
-            .event_queue = BoundedQueue(Event, 32).init(),
+            .event_buffer = undefined,
+            // Queue for pending input events.
+            .evq = undefined,
             .toggle = false,
             .textinput_buffer = std.mem.zeroes([32]u8),
             .textinput = std.ArrayList(u8).initBuffer(&self.textinput_buffer),
             .input_parser = parser.Parser.init(),
         };
+        self.evq = std.Io.Queue(Event).init(&self.event_buffer);
 
         const ws = try self.querySize();
         self.width = ws.col;
@@ -291,7 +298,7 @@ pub const Screen = struct {
     /// Returns `null` if no events are available.
     /// Events are queued by the background I/O thread started with `start()`.
     pub fn pollEvent(self: *Screen) ?Event {
-        return self.event_queue.popFront();
+        return self.evq.getOne(self.io) catch null;
     }
 
     /// Move cursor to the specified row and column.

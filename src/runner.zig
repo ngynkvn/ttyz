@@ -67,22 +67,19 @@ pub fn Runner(comptime T: type) type {
             fps: u32 = 30,
         };
 
-        /// Shared state for signal handlers
-        var signal_screen: ?*Screen = null;
-
+        var initialized: bool = false;
+        var io: std.Io = undefined;
+        var signal_screen: *Screen = undefined;
         /// Signal handler that queues resize events
         fn handleSignals(sig: std.posix.SIG) callconv(.c) void {
+            if (!initialized) return;
+            const screen = signal_screen;
             if (sig == std.posix.SIG.WINCH) {
-                if (signal_screen) |screen| {
-                    // Query new size and push resize event
-                    if (queryHandleSize(screen.fd)) |ws| {
-                        screen.width = ws.col;
-                        screen.height = ws.row;
-                        screen.event_queue.pushBackBounded(.{
-                            .resize = .{ .width = ws.col, .height = ws.row },
-                        }) catch {};
-                    } else |_| {}
-                }
+                // Query new size and push resize event
+                if (queryHandleSize(screen.fd)) |ws| {
+                    const ev: Event = .{ .resize = .{ .width = ws.col, .height = ws.row } };
+                    screen.evq.putOne(io, ev) catch {};
+                } else |_| {}
             }
         }
 
@@ -93,13 +90,13 @@ pub fn Runner(comptime T: type) type {
 
         /// Run with custom options.
         pub fn runWithOptions(app: *T, proc: std.process.Init, options: Options) !void {
-            const io = proc.io;
-            var screen = try Screen.init(io);
+            io = proc.io;
+            var screen = try Screen.init(proc.io);
             defer _ = screen.deinit() catch {};
 
             // Store screen pointer for signal handler
             signal_screen = &screen;
-            defer signal_screen = null;
+            defer signal_screen = undefined;
 
             // Set up WINCH signal handler that queues resize events
             const sa = std.posix.Sigaction{
@@ -108,6 +105,10 @@ pub fn Runner(comptime T: type) type {
                 .handler = .{ .handler = handleSignals },
             };
             std.posix.sigaction(std.posix.SIG.WINCH, &sa, null);
+
+            // Enable signal handler
+            initialized = true;
+            defer initialized = false;
 
             // Initialize frame buffer
             var buffer = try frame.Buffer.init(proc.gpa, screen.width, screen.height);
@@ -131,34 +132,31 @@ pub fn Runner(comptime T: type) type {
 
             const frame_duration = std.Io.Duration.fromMilliseconds(1000 / options.fps);
 
-            while (screen.running) {
-                // Read input and queue events (non-blocking)
-                readInput(&screen);
+            run: while (screen.running) {
+                // Read input and queue events (non-blocking due to termios VTIME=1)
+                readInput(io, &screen);
 
                 // Poll and handle all pending events from unified queue
-                while (screen.pollEvent()) |event| {
+                var resize: ?struct { width: u16, height: u16 } = null;
+                poll: while (screen.pollEvent()) |event| {
                     // Handle resize by updating buffer
                     switch (event) {
-                        .resize => |r| {
-                            if (buffer.width != r.width or buffer.height != r.height) {
-                                buffer.resize(r.width, r.height) catch {};
-                            }
+                        .resize => |r| if (buffer.width != r.width or buffer.height != r.height) {
+                            resize = .{ .width = r.width, .height = r.height };
                         },
-                        else => {},
-                    }
-
-                    // Let app handle the event
-                    if (!app.handleEvent(event)) {
-                        screen.running = false;
-                        break;
+                        else => if (!app.handleEvent(event)) {
+                            screen.running = false;
+                            break :poll;
+                        },
                     }
                 }
-
-                if (!screen.running) break;
+                if (!screen.running) break :run;
+                if (resize) |r| buffer.resize(r.width, r.height) catch {};
 
                 // Clear and render frame
                 var f = frame.Frame.init(&buffer);
                 f.clear();
+
                 try app.render(&f);
                 try f.render(&screen);
                 try screen.flush();
@@ -168,8 +166,8 @@ pub fn Runner(comptime T: type) type {
             }
         }
 
-        /// Read input from the TTY and queue events (non-blocking)
-        fn readInput(screen: *Screen) void {
+        // Read input from the TTY and queue events (non-blocking due to termios VTIME=1)
+        fn readInput(rio: std.Io, screen: *Screen) void {
             var input_buffer: [32]u8 = undefined;
 
             const rc = system.read(screen.fd, &input_buffer, input_buffer.len);
@@ -181,7 +179,7 @@ pub fn Runner(comptime T: type) type {
             for (input_buffer[0..bytes_read]) |byte| {
                 const action = screen.input_parser.advance(byte);
                 if (screen.actionToEvent(action, byte)) |ev| {
-                    screen.event_queue.pushBackBounded(ev) catch {};
+                    screen.evq.putOne(rio, ev) catch {};
                 }
             }
         }

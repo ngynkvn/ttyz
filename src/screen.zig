@@ -66,18 +66,6 @@ pub const Screen = struct {
         var default_events_buf: [default_events_size]Event = undefined;
     };
 
-    pub const Signals = struct {
-        pub var WINCH: bool = false;
-        pub var INTERRUPT: bool = false;
-        pub fn handleSignals(sig: std.posix.SIG) callconv(.c) void {
-            if (sig == std.posix.SIG.WINCH) {
-                @atomicStore(bool, &Signals.WINCH, true, .seq_cst);
-            } else {
-                std.log.err("received unexpected signal: {}", .{sig});
-            }
-        }
-    };
-
     file: std.Io.File,
     /// The underlying TTY file descriptor.
     fd: posix.fd_t,
@@ -153,35 +141,22 @@ pub const Screen = struct {
         self.height = ws.row;
         std.log.debug("windowsize is {}x{}; xpixel={d}, ypixel={d}", .{ self.width, self.height, ws.xpixel, ws.ypixel });
 
-        _ = try self.writeRawDirect(self.startSequence());
+        try self.writeStartSequences();
         return self;
     }
 
-    /// Build the start sequence based on options.
-    fn startSequence(self: *Screen) []const u8 {
-        // Use comptime string building for common cases
-        if (self.options.alt_screen and self.options.hide_cursor and self.options.mouse_tracking) {
-            return E.ENTER_ALT_SCREEN ++ E.CURSOR_INVISIBLE ++ E.ENABLE_MOUSE_TRACKING;
-        } else if (self.options.alt_screen and self.options.hide_cursor) {
-            return E.ENTER_ALT_SCREEN ++ E.CURSOR_INVISIBLE;
-        } else if (self.options.alt_screen) {
-            return E.ENTER_ALT_SCREEN;
-        } else {
-            return "";
-        }
+    /// Write startup escape sequences based on options.
+    fn writeStartSequences(self: *Screen) !void {
+        if (self.options.alt_screen) _ = try self.writeRawDirect(E.ENTER_ALT_SCREEN);
+        if (self.options.hide_cursor) _ = try self.writeRawDirect(E.CURSOR_INVISIBLE);
+        if (self.options.mouse_tracking) _ = try self.writeRawDirect(E.ENABLE_MOUSE_TRACKING);
     }
 
-    /// Build the exit sequence based on options.
-    fn exitSequence(self: *Screen) []const u8 {
-        if (self.options.alt_screen and self.options.hide_cursor and self.options.mouse_tracking) {
-            return E.EXIT_ALT_SCREEN ++ E.CURSOR_VISIBLE ++ E.DISABLE_MOUSE_TRACKING;
-        } else if (self.options.alt_screen and self.options.hide_cursor) {
-            return E.EXIT_ALT_SCREEN ++ E.CURSOR_VISIBLE;
-        } else if (self.options.alt_screen) {
-            return E.EXIT_ALT_SCREEN;
-        } else {
-            return "";
-        }
+    /// Write cleanup escape sequences based on options.
+    fn writeExitSequences(self: *Screen) !void {
+        if (self.options.mouse_tracking) _ = try self.writeRawDirect(E.DISABLE_MOUSE_TRACKING);
+        if (self.options.hide_cursor) _ = try self.writeRawDirect(E.CURSOR_VISIBLE);
+        if (self.options.alt_screen) _ = try self.writeRawDirect(E.EXIT_ALT_SCREEN);
     }
 
     /// Write bytes directly to terminal (bypasses buffer).
@@ -194,7 +169,7 @@ pub const Screen = struct {
     /// Clean up and restore terminal to its original state.
     pub fn deinit(self: *Screen) !posix.E {
         self.running = false;
-        _ = try self.writeRawDirect(self.exitSequence());
+        try self.writeExitSequences();
         const rc = if (orig_termios) |orig|
             system.tcsetattr(self.fd, .FLUSH, &orig)
         else

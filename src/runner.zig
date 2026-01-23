@@ -94,7 +94,7 @@ pub fn Runner(comptime T: type) type {
 
             while (screen.running) {
                 // Read input and queue events (non-blocking due to termios VTIME=1)
-                readInput(&screen);
+                screen.readAndQueueEvents();
 
                 // Poll and handle all pending events from unified queue
                 var resize: ?struct { width: u16, height: u16 } = null;
@@ -133,22 +133,5 @@ pub fn Runner(comptime T: type) type {
             }
         }
 
-        // Read input from the TTY and queue events (non-blocking due to termios VTIME=1)
-        fn readInput(screen: *Screen) void {
-            var input_buffer: [32]u8 = undefined;
-
-            const rc = system.read(screen.fd, &input_buffer, input_buffer.len);
-            if (rc <= 0) return;
-
-            const bytes_read: usize = @intCast(rc);
-
-            // Process each byte through the parser and queue events
-            for (input_buffer[0..bytes_read]) |byte| {
-                const action = screen.input_parser.advance(byte);
-                if (screen.actionToEvent(action, byte)) |ev| {
-                    screen.pushEvent(ev);
-                }
-            }
-        }
     };
 }

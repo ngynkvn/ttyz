@@ -91,12 +91,8 @@ pub const Screen = struct {
     writer: std.Io.File.Writer,
     /// Queue for pending input events.
     event_queue: BoundedQueue(Event),
-    /// Background I/O thread handle.
-    io_thread: ?std.Thread,
-    /// Set to false to stop the main loop and I/O thread.
+    /// Set to false to stop the main loop.
     running: bool,
-    /// Application state toggle (for demo purposes).
-    toggle: bool,
     /// Text input accumulator.
     textinput: std.ArrayList(u8),
     /// ANSI escape sequence parser for input.
@@ -146,9 +142,7 @@ pub const Screen = struct {
             .height = 0,
             .lock = .{},
             .writer = f.writerStreaming(io, options.writer),
-            .io_thread = null,
             .event_queue = BoundedQueue(Event).init(options.events),
-            .toggle = false,
             .textinput = std.ArrayList(u8).initBuffer(options.textinput),
             .input_parser = parser.Parser.init(),
             .options = options,
@@ -200,7 +194,6 @@ pub const Screen = struct {
     /// Clean up and restore terminal to its original state.
     pub fn deinit(self: *Screen) !posix.E {
         self.running = false;
-        if (self.io_thread) |thread| thread.join();
         _ = try self.writeRawDirect(self.exitSequence());
         const rc = if (orig_termios) |orig|
             system.tcsetattr(self.fd, .FLUSH, &orig)
@@ -292,6 +285,22 @@ pub const Screen = struct {
     /// Push an event to the queue.
     pub fn pushEvent(self: *Screen, event: Event) void {
         self.event_queue.pushBackBounded(event) catch {};
+    }
+
+    /// Read input from TTY and queue events.
+    /// Non-blocking due to termios VMIN=0, VTIME=1 settings.
+    pub fn readAndQueueEvents(self: *Screen) void {
+        var input_buffer: [32]u8 = undefined;
+        const rc = system.read(self.fd, &input_buffer, input_buffer.len);
+        if (rc <= 0) return;
+
+        const bytes_read: usize = @intCast(rc);
+        for (input_buffer[0..bytes_read]) |byte| {
+            const action = self.input_parser.advance(byte);
+            if (self.actionToEvent(action, byte)) |ev| {
+                self.pushEvent(ev);
+            }
+        }
     }
 
     /// Move cursor to the specified row and column.

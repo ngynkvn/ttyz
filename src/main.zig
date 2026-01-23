@@ -1,9 +1,7 @@
 const std = @import("std");
 const ttyz = @import("ttyz");
 const builtin = std.builtin;
-const termdraw = ttyz.termdraw;
 const ansi = ttyz.ansi;
-const layout = ttyz.layout;
 
 pub fn main(init: std.process.Init) !void {
     const allocator = init.arena.allocator();
@@ -74,7 +72,7 @@ pub fn main(init: std.process.Init) !void {
         try s.print("Tab to switch panel, q to quit" ++ ansi.reset ++ "\r\n\r\n", .{});
 
         // Read input (non-blocking due to termios settings)
-        readInput(&s);
+        s.readAndQueueEvents();
 
         while (s.pollEvent()) |event| {
             std.log.info("event: {}", .{event});
@@ -196,22 +194,4 @@ fn enableLogging() void {
 
 fn disableLogging() void {
     debug = false;
-}
-
-/// Read input from the TTY (non-blocking due to termios VMIN=0, VTIME=1)
-fn readInput(screen: *ttyz.Screen) void {
-    var input_buffer: [32]u8 = undefined;
-
-    const rc = std.posix.system.read(screen.fd, &input_buffer, input_buffer.len);
-    if (rc <= 0) return;
-
-    const bytes_read: usize = @intCast(rc);
-
-    // Process each byte through the parser
-    for (input_buffer[0..bytes_read]) |byte| {
-        const action = screen.input_parser.advance(byte);
-        if (screen.actionToEvent(action, byte)) |ev| {
-            screen.pushEvent(ev);
-        }
-    }
 }

@@ -6,7 +6,6 @@ const termdraw = ttyz.termdraw;
 const text = ttyz.text;
 
 const Demo = struct {
-    screen: *ttyz.Screen,
     current_tab: Tab = .overview,
     mouse_pos: struct { row: usize = 0, col: usize = 0 } = .{},
     click_count: usize = 0,
@@ -43,33 +42,59 @@ const Demo = struct {
         self.key_idx = (self.key_idx + 1) % self.key_history.len;
     }
 
-    fn render(self: *Demo) !void {
-        const s = self.screen;
+    pub fn handleEvent(self: *Demo, event: ttyz.Event) bool {
+        switch (event) {
+            .key => |key| {
+                switch (key) {
+                    .q, .Q, .esc => return false,
+                    .tab => self.nextTab(),
+                    else => {
+                        const key_val = @intFromEnum(key);
+                        if (key_val < 128) {
+                            self.recordKey(@intCast(key_val));
+                        }
+                    },
+                }
+            },
+            .mouse => |mouse| {
+                self.mouse_pos.row = mouse.row;
+                self.mouse_pos.col = mouse.col;
+                if (mouse.button_state == .pressed) {
+                    self.click_count += 1;
+                }
+            },
+            .interrupt => return false,
+            else => {},
+        }
+        return true;
+    }
+
+    pub fn render(self: *Demo, s: *ttyz.Screen) !void {
         try s.home();
 
         // Draw header
-        try self.drawHeader();
+        try self.drawHeader(s);
 
         // Draw tab bar
-        try self.drawTabBar();
+        try self.drawTabBar(s);
 
         // Draw content based on current tab
         switch (self.current_tab) {
-            .overview => try self.drawOverview(),
-            .colors => try self.drawColors(),
-            .events => try self.drawEvents(),
-            .boxes => try self.drawBoxes(),
-            .text_demo => try self.drawTextDemo(),
+            .overview => try self.drawOverview(s),
+            .colors => try self.drawColors(s),
+            .events => try self.drawEvents(s),
+            .boxes => try self.drawBoxes(s),
+            .text_demo => try self.drawTextDemo(s),
         }
 
         // Draw footer
-        try self.drawFooter();
+        try self.drawFooter(s);
 
         self.frame +%= 1;
     }
 
-    fn drawHeader(self: *Demo) !void {
-        const s = self.screen;
+    fn drawHeader(self: *Demo, s: *ttyz.Screen) !void {
+        _ = self;
         const title = " ttyz Demo ";
         const padding = (s.width -| @as(u16, @intCast(title.len))) / 2;
 
@@ -85,8 +110,7 @@ const Demo = struct {
         try s.print("{s}" ++ ansi.reset ++ "\r\n", .{title});
     }
 
-    fn drawTabBar(self: *Demo) !void {
-        const s = self.screen;
+    fn drawTabBar(self: *Demo, s: *ttyz.Screen) !void {
         try s.print(E.GOTO, .{ @as(u16, 3), @as(u16, 1) });
 
         for (tabs) |t| {
@@ -101,8 +125,7 @@ const Demo = struct {
         try s.print("\r\n", .{});
     }
 
-    fn drawOverview(self: *Demo) !void {
-        const s = self.screen;
+    fn drawOverview(self: *Demo, s: *ttyz.Screen) !void {
         const start_row: u16 = 5;
 
         try s.print(E.GOTO ++ ansi.bold ++ "Welcome to ttyz!" ++ ansi.reset ++ "\r\n", .{ start_row, @as(u16, 3) });
@@ -135,8 +158,7 @@ const Demo = struct {
         try s.print(E.GOTO ++ ansi.fg.cyan ++ "{s}" ++ ansi.reset, .{ start_row + 2, @as(u16, 3), spinner });
     }
 
-    fn drawColors(self: *Demo) !void {
-        const s = self.screen;
+    fn drawColors(self: *Demo, s: *ttyz.Screen) !void {
         const start_row: u16 = 5;
 
         // 16 basic colors
@@ -211,8 +233,7 @@ const Demo = struct {
         }
     }
 
-    fn drawEvents(self: *Demo) !void {
-        const s = self.screen;
+    fn drawEvents(self: *Demo, s: *ttyz.Screen) !void {
         const start_row: u16 = 5;
 
         try s.print(E.GOTO ++ ansi.bold ++ "Event Tracking:" ++ ansi.reset ++ "\r\n", .{ start_row, @as(u16, 3) });
@@ -248,8 +269,8 @@ const Demo = struct {
         }
     }
 
-    fn drawBoxes(self: *Demo) !void {
-        const s = self.screen;
+    fn drawBoxes(self: *Demo, s: *ttyz.Screen) !void {
+        _ = self;
 
         // Draw several boxes
         try termdraw.box(&s.writer.interface, .{
@@ -307,8 +328,8 @@ const Demo = struct {
         try s.print(E.GOTO ++ "Lines", .{ @as(u16, 15), @as(u16, 54) });
     }
 
-    fn drawTextDemo(self: *Demo) !void {
-        const s = self.screen;
+    fn drawTextDemo(self: *Demo, s: *ttyz.Screen) !void {
+        _ = self;
         const start_row: u16 = 5;
 
         try s.print(E.GOTO ++ ansi.bold ++ "Text Utilities:" ++ ansi.reset ++ "\r\n", .{ start_row, @as(u16, 3) });
@@ -347,8 +368,7 @@ const Demo = struct {
         try clr.print("@[.yellow]Warning@[.reset]: @[.cyan]Check your input@[.reset]", .{});
     }
 
-    fn drawFooter(self: *Demo) !void {
-        const s = self.screen;
+    fn drawFooter(self: *Demo, s: *ttyz.Screen) !void {
         const footer_row = s.height;
 
         try s.print(E.GOTO ++ ansi.bg.bright_black ++ ansi.fg.white, .{ footer_row, @as(u16, 1) });
@@ -365,49 +385,8 @@ const Demo = struct {
 };
 
 pub fn main(init: std.process.Init) !void {
-    var s = try ttyz.Screen.init();
-    defer _ = s.deinit() catch {};
-
-    try s.start();
-
-    var demo = Demo{ .screen = &s };
-
-    while (s.running) {
-        // Handle events
-        while (s.pollEvent()) |event| {
-            switch (event) {
-                .key => |key| {
-                    switch (key) {
-                        .q, .Q, .esc => s.running = false,
-                        .tab => demo.nextTab(),
-                        else => {
-                            const key_val = @intFromEnum(key);
-                            if (key_val < 128) {
-                                demo.recordKey(@intCast(key_val));
-                            }
-                        },
-                    }
-                },
-                .mouse => |mouse| {
-                    demo.mouse_pos.row = mouse.row;
-                    demo.mouse_pos.col = mouse.col;
-                    if (mouse.button_state == .pressed) {
-                        demo.click_count += 1;
-                    }
-                },
-                .interrupt => s.running = false,
-                else => {},
-            }
-        }
-
-        // Clear and render
-        try s.clearScreen();
-        try demo.render();
-        try s.flush();
-
-        // ~30 FPS
-        init.io.sleep(std.Io.Duration.fromMilliseconds(33), .awake) catch {};
-    }
+    var demo = Demo{};
+    try ttyz.Runner(Demo).run(&demo, init);
 }
 
 pub const std_options: std.Options = .{

@@ -720,6 +720,106 @@ pub fn panicTty(msg: []const u8, ra: ?usize) noreturn {
     std.debug.defaultPanic(msg, ra);
 }
 
+/// Generic event/render loop runner.
+///
+/// Simplifies the common pattern of polling events, handling them, and rendering.
+/// The app type `T` must implement:
+/// - `handleEvent(*T, Event) bool` - Handle an event. Return false to stop the loop.
+/// - `render(*T, *Screen) !void` - Render the current frame.
+///
+/// Optionally, `T` may implement:
+/// - `init(*T, *Screen) !void` - Called before the loop starts.
+/// - `deinit(*T) void` - Called after the loop ends.
+///
+/// ## Example
+/// ```zig
+/// const MyApp = struct {
+///     count: usize = 0,
+///
+///     pub fn handleEvent(self: *MyApp, event: ttyz.Event) bool {
+///         switch (event) {
+///             .key => |k| if (k == .q) return false,
+///             .interrupt => return false,
+///             else => {},
+///         }
+///         return true;
+///     }
+///
+///     pub fn render(self: *MyApp, screen: *ttyz.Screen) !void {
+///         try screen.print("Count: {}\r\n", .{self.count});
+///         self.count += 1;
+///     }
+/// };
+///
+/// pub fn main(proc: std.process.Init) !void {
+///     var app = MyApp{};
+///     try ttyz.Runner(MyApp).run(&app, proc);
+/// }
+/// ```
+pub fn Runner(comptime T: type) type {
+    return struct {
+        const Self = @This();
+
+        /// Configuration options for the runner.
+        pub const Options = struct {
+            /// Target frames per second (controls sleep duration between frames).
+            fps: u32 = 30,
+            /// Whether to clear the screen before each render.
+            clear_screen: bool = true,
+        };
+
+        /// Run the event/render loop with the given app.
+        pub fn run(app: *T, proc: std.process.Init) !void {
+            return runWithOptions(app, proc, .{});
+        }
+
+        /// Run the event/render loop with custom options.
+        pub fn runWithOptions(app: *T, proc: std.process.Init, options: Options) !void {
+            var screen = try Screen.init();
+            defer _ = screen.deinit() catch {};
+
+            try screen.start();
+
+            // Call app.init if it exists
+            if (@hasDecl(T, "init")) {
+                try app.init(&screen);
+            }
+
+            defer {
+                // Call app.deinit if it exists
+                if (@hasDecl(T, "deinit")) {
+                    app.deinit();
+                }
+            }
+
+            const frame_ms = 1000 / options.fps;
+
+            while (screen.running) {
+                // Poll and handle all pending events
+                while (screen.pollEvent()) |event| {
+                    if (!app.handleEvent(event)) {
+                        screen.running = false;
+                        break;
+                    }
+                }
+
+                if (!screen.running) break;
+
+                // Render
+                if (options.clear_screen) {
+                    try screen.clearScreen();
+                    try screen.home();
+                }
+                try app.render(&screen);
+                try screen.flush();
+
+                // Frame timing
+                proc.io.sleep(std.Io.Duration.fromMilliseconds(frame_ms), .awake) catch {};
+            }
+        }
+    };
+}
+
 test {
     std.testing.refAllDecls(@This());
 }

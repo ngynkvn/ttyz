@@ -211,7 +211,7 @@ fn readInput(screen: *ttyz.Screen) void {
     for (input_buffer[0..bytes_read]) |byte| {
         const action = screen.input_parser.advance(byte);
         if (screen.actionToEvent(action, byte)) |ev| {
-            screen.evq.putOne(screen.io, ev) catch {};
+            screen.pushEvent(ev);
         }
     }
 }

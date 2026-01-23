@@ -27,27 +27,6 @@ var tty_fd: ?posix.fd_t = null;
 /// Screen manages raw mode initialization, event handling, and output buffering.
 /// It provides thread-safe methods for writing to the terminal and polling for
 /// input events.
-///
-/// ## Example
-/// ```zig
-/// var screen = try Screen.init();
-/// defer _ = screen.deinit() catch {};
-///
-/// try screen.start();  // Start the I/O thread
-///
-/// while (screen.running) {
-///     while (screen.pollEvent()) |event| {
-///         switch (event) {
-///             .key => |k| if (k == .q) screen.running = false,
-///             else => {},
-///         }
-///     }
-///     try screen.clearScreen();
-///     try screen.home();
-///     try screen.print("Size: {}x{}\n", .{screen.width, screen.height});
-///     try screen.flush();
-/// }
-/// ```
 pub const Screen = struct {
     /// Error type for Screen write operations.
     pub const WriteError = error{WriteFailed};
@@ -71,7 +50,6 @@ pub const Screen = struct {
         }
     };
 
-    io: std.Io,
     file: std.Io.File,
     /// The underlying TTY file descriptor.
     fd: posix.fd_t,
@@ -85,10 +63,8 @@ pub const Screen = struct {
     writer: std.Io.File.Writer,
     /// Buffer for the writer.
     writer_buffer: [4096]u8,
-    ///
-    evq: std.Io.Queue(Event),
-    /// Buffer for events.
-    event_buffer: [32]Event,
+    /// Queue for pending input events.
+    event_queue: BoundedQueue(Event, 32),
     /// Background I/O thread handle.
     io_thread: ?std.Thread,
     /// Set to false to stop the main loop and I/O thread.
@@ -103,20 +79,12 @@ pub const Screen = struct {
     input_parser: parser.Parser,
 
     /// Enter "raw mode", returning a struct that wraps around the provided tty file
-    /// Entering raw mode will automatically send the sequence for entering an
-    /// alternate screen (smcup) and hiding the cursor.
-    /// Use `defer Screen.deinit()` to reset on exit.
-    /// Deferral will set the sequence for exiting alt screen (rmcup)
-    ///
-    /// Explanation here: https://viewsourcecode.org/snaptoken/kilo/02.enteringScreen.html
-    /// https://zig.news/lhp/want-to-create-a-tui-application-the-basics-of-uncooked-terminal-io-17gm
     pub fn init(io: std.Io) !Screen {
         const f = try std.Io.Dir.openFileAbsolute(io, CONFIG.TTY_PATH, .{ .mode = .read_write });
         return try initFrom(io, f);
     }
 
     /// Initialize a Screen from an existing TTY file descriptor.
-    /// This allows using a custom TTY instead of the default `/dev/tty`.
     pub fn initFrom(io: std.Io, f: std.Io.File) !Screen {
         const fd = f.handle;
         tty_fd = fd;
@@ -124,22 +92,21 @@ pub const Screen = struct {
         orig_termios = orig;
 
         var raw = orig;
-        // Some explanation of the flags can be found in the links above.
         // zig fmt: off
-        raw.lflag.ECHO   = false;                 // Disable echo input
-        raw.lflag.ICANON = false;                 // Read byte by byte
-        raw.lflag.IEXTEN = false;                 // Disable <C-v>
-        raw.lflag.ISIG   = !CONFIG.HANDLE_SIGINT; // Disable <C-c> and <C-z>
-        raw.iflag.IXON   = false;                 // Disable <C-s> and <C-q>
-        raw.iflag.ICRNL  = false;                 // Disable <C-m>
-        raw.iflag.BRKINT = false;                 // Break condition sends SIGINT
-        raw.iflag.INPCK  = false;                 // Enable parity checking
-        raw.iflag.ISTRIP = false;                 // Strip 8th bit of input byte
-        raw.oflag.OPOST  = false;                 // Disable translating "\n" to "\r\n"
+        raw.lflag.ECHO   = false;
+        raw.lflag.ICANON = false;
+        raw.lflag.IEXTEN = false;
+        raw.lflag.ISIG   = !CONFIG.HANDLE_SIGINT;
+        raw.iflag.IXON   = false;
+        raw.iflag.ICRNL  = false;
+        raw.iflag.BRKINT = false;
+        raw.iflag.INPCK  = false;
+        raw.iflag.ISTRIP = false;
+        raw.oflag.OPOST  = false;
         raw.cflag.CSIZE  = .CS8;
 
-        raw.cc[@intFromEnum(system.V.MIN)]  = 0;  // min bytes required for read
-        raw.cc[@intFromEnum(system.V.TIME)] = 1;  // min time to wait for response, 100ms per unit
+        raw.cc[@intFromEnum(system.V.MIN)]  = 0;
+        raw.cc[@intFromEnum(system.V.TIME)] = 1;
         // zig fmt: on
 
         const setrc = system.tcsetattr(fd, .FLUSH, &raw);
@@ -147,7 +114,6 @@ pub const Screen = struct {
 
         var self: Screen = undefined;
         self = .{
-            .io = io,
             .file = f,
             .fd = fd,
             .running = true,
@@ -156,17 +122,13 @@ pub const Screen = struct {
             .lock = .{},
             .writer = f.writerStreaming(io, &self.writer_buffer),
             .writer_buffer = undefined,
-            // input
             .io_thread = null,
-            .event_buffer = undefined,
-            // Queue for pending input events.
-            .evq = undefined,
+            .event_queue = BoundedQueue(Event, 32).init(),
             .toggle = false,
             .textinput_buffer = std.mem.zeroes([32]u8),
             .textinput = std.ArrayList(u8).initBuffer(&self.textinput_buffer),
             .input_parser = parser.Parser.init(),
         };
-        self.evq = std.Io.Queue(Event).init(&self.event_buffer);
 
         const ws = try self.querySize();
         self.width = ws.col;
@@ -184,22 +146,7 @@ pub const Screen = struct {
         return n;
     }
 
-    /// Write bytes to the buffered writer.
-    fn writeRaw(self: *Screen, bytes: []const u8) !usize {
-        _ = self;
-        _ = bytes;
-        @compileError("unused");
-    }
-
-    /// Flush the buffered writer to terminal.
-    fn flushBuffer(self: *Screen) !void {
-        _ = self;
-        @compileError("unused");
-    }
-
     /// Clean up and restore terminal to its original state.
-    /// Stops the I/O thread, restores terminal settings, and closes the TTY.
-    /// Returns the errno from restoring terminal settings.
     pub fn deinit(self: *Screen) !posix.E {
         self.running = false;
         if (self.io_thread) |thread| thread.join();
@@ -216,22 +163,19 @@ pub const Screen = struct {
     pub fn actionToEvent(self: *Screen, action: parser.Action, byte: u8) ?Event {
         switch (action) {
             .execute => {
-                // Handle C0 control characters
-                if (byte == 3) return .interrupt; // Ctrl+C
+                if (byte == 3) return .interrupt;
                 if (byte == '\r' or byte == '\n') return .{ .key = .carriage_return };
                 if (byte == '\t') return .{ .key = .tab };
-                if (byte == 0x1B) return .{ .key = .esc }; // ESC alone
+                if (byte == 0x1B) return .{ .key = .esc };
                 return null;
             },
             .print => {
-                // Printable character
                 return .{ .key = @enumFromInt(byte) };
             },
             .csi_dispatch => {
                 return self.parseCsiEvent();
             },
             .osc_end => {
-                // Check for focus events (OSC 1004)
                 const osc_data = self.input_parser.getOscData();
                 if (osc_data.len > 0) {
                     if (osc_data[0] == 'I') return .{ .focus = true };
@@ -249,7 +193,6 @@ pub const Screen = struct {
         const final = p.final_char;
         const params = p.getParams();
 
-        // Arrow keys and simple navigation
         switch (final) {
             'A' => return .{ .key = .arrow_up },
             'B' => return .{ .key = .arrow_down },
@@ -259,7 +202,6 @@ pub const Screen = struct {
             'F' => return .{ .key = .end },
             'Z' => return .{ .key = .backtab },
             'R' => {
-                // Cursor position response
                 if (params.len >= 2) {
                     return .{ .cursor_pos = .{
                         .row = params[0],
@@ -269,7 +211,6 @@ pub const Screen = struct {
                 return null;
             },
             '~' => {
-                // Function keys and special keys
                 if (params.len >= 1) {
                     if (Event.Key.fromCsiNum(@intCast(params[0]), '~')) |key| {
                         return .{ .key = key };
@@ -278,8 +219,6 @@ pub const Screen = struct {
                 return null;
             },
             'M', 'm' => {
-                // SGR extended mouse coordinates (private marker '<')
-                // Format: CSI < Cb ; Cx ; Cy M (press) or m (release)
                 if (p.private_marker == '<' and params.len >= 3) {
                     var mouse = Event.Mouse.fromButtonCode(params[0], final);
                     mouse.col = params[1];
@@ -295,20 +234,21 @@ pub const Screen = struct {
     }
 
     /// Poll for the next input event.
-    /// Returns `null` if no events are available.
-    /// Events are queued by the background I/O thread started with `start()`.
     pub fn pollEvent(self: *Screen) ?Event {
-        return self.evq.getOne(self.io) catch null;
+        return self.event_queue.popFront();
+    }
+
+    /// Push an event to the queue.
+    pub fn pushEvent(self: *Screen, event: Event) void {
+        self.event_queue.pushBackBounded(event) catch {};
     }
 
     /// Move cursor to the specified row and column.
-    /// Coordinates are 1-based: (1, 1) is the top-left corner.
     pub fn goto(self: *Screen, r: u16, c: u16) !void {
         try self.print(E.GOTO, .{ r, c });
     }
 
     /// Send a cursor position query to the terminal.
-    /// The response will be delivered as a `cursor_pos` event.
     pub fn queryPos(self: *Screen) !void {
         self.lock.lock();
         defer self.lock.unlock();
@@ -316,7 +256,6 @@ pub const Screen = struct {
     }
 
     /// Query the current terminal size.
-    /// Returns a `winsize` struct with `row`, `col`, `xpixel`, and `ypixel` fields.
     pub fn querySize(self: *Screen) !posix.winsize {
         self.lock.lock();
         defer self.lock.unlock();
@@ -324,7 +263,6 @@ pub const Screen = struct {
     }
 
     /// Read raw input bytes into the provided buffer.
-    /// Returns the number of bytes read.
     pub fn read(self: *Screen, buffer: []u8) ReadError!usize {
         const rc = system.read(self.fd, buffer.ptr, buffer.len);
         if (rc < 0) return error.ReadFailed;
@@ -332,13 +270,11 @@ pub const Screen = struct {
     }
 
     /// Print formatted output to the terminal.
-    /// Uses the same format syntax as `std.fmt`.
     pub fn print(self: *Screen, comptime fmt: []const u8, args: anytype) !void {
         try self.printArgs(fmt, args, .{});
     }
 
     /// Write raw bytes to the terminal.
-    /// Returns the number of bytes written. Thread-safe.
     pub fn write(self: *Screen, buf: []const u8) !usize {
         self.lock.lock();
         defer self.lock.unlock();
@@ -346,7 +282,6 @@ pub const Screen = struct {
     }
 
     /// Write all bytes to the terminal.
-    /// Thread-safe.
     pub fn writeAll(self: *Screen, buf: []const u8) !void {
         self.lock.lock();
         defer self.lock.unlock();
@@ -354,7 +289,6 @@ pub const Screen = struct {
     }
 
     /// Print formatted output with additional options.
-    /// Thread-safe.
     pub fn printArgs(self: *Screen, comptime fmt: []const u8, args: anytype, wargs: WriteArgs) !void {
         self.lock.lock();
         defer self.lock.unlock();
@@ -369,7 +303,6 @@ pub const Screen = struct {
     }
 
     /// Flush the output buffer to the terminal.
-    /// Call this after a series of writes to ensure output is displayed.
     pub fn flush(self: *Screen) !void {
         self.lock.lock();
         defer self.lock.unlock();
@@ -388,7 +321,6 @@ pub const Screen = struct {
 };
 
 /// Query the terminal size for a given file descriptor.
-/// Returns a `winsize` struct with terminal dimensions.
 pub fn queryHandleSize(fd: posix.fd_t) !posix.winsize {
     var ws: posix.winsize = .{ .row = 0, .col = 0, .xpixel = 0, .ypixel = 0 };
     const result = system.ioctl(fd, posix.T.IOCGWINSZ, @intFromPtr(&ws));
@@ -397,12 +329,8 @@ pub fn queryHandleSize(fd: posix.fd_t) !posix.winsize {
 }
 
 /// Custom panic handler that restores terminal state before panicking.
-/// Assign to `pub const panic = ttyz.panic;` in your root source file
-/// to ensure the terminal is restored even on panics.
 pub const panic = std.debug.FullPanic(panicTty);
 
-/// Internal panic handler implementation.
-/// Restores terminal state before calling the default panic handler.
 pub fn panicTty(msg: []const u8, ra: ?usize) noreturn {
     if (tty_fd) |fd| {
         _ = system.write(fd, CONFIG.EXIT_SEQUENCE.ptr, CONFIG.EXIT_SEQUENCE.len);

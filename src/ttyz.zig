@@ -54,6 +54,13 @@ pub const E = @import("esc.zig");
 /// Generic bounded ring buffer queue.
 pub const BoundedQueue = @import("bounded_queue.zig").BoundedQueue;
 
+/// Frame-based drawing with cell buffers.
+pub const frame = @import("frame.zig");
+pub const Frame = frame.Frame;
+pub const Buffer = frame.Buffer;
+pub const Cell = frame.Cell;
+pub const Rect = frame.Rect;
+
 /// DEC ANSI escape sequence parser.
 pub const parser = @import("parser.zig");
 

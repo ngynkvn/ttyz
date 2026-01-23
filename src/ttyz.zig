@@ -50,15 +50,13 @@ pub const E = struct {
 const cc = std.ascii.control_code;
 // zig fmt: on
 
-pub const TtyHandle = struct {};
-
 pub const Screen = struct {
     orig_termios: posix.termios,
     tty: std.fs.File,
     width: u16,
     height: u16,
     buffer: [4096]u8,
-    input_buffer: [4096]u8,
+    input_buffer: [32]u8,
     last_read: []u8,
     lock: std.Thread.Mutex,
     writer: std.fs.File.Writer,
@@ -67,7 +65,6 @@ pub const Screen = struct {
     io_thread: ?std.Thread,
     running: bool,
     pub const Error = std.posix.WriteError;
-    pub const CursorPos = struct { row: usize, col: usize };
 
     /// Enter "raw mode", returning a struct that wraps around the provided tty file
     /// Entering raw mode will automatically send the sequence for entering an
@@ -130,7 +127,7 @@ pub const Screen = struct {
             .buffer = std.mem.zeroes([4096]u8),
             .writer = tty.writer(&self.buffer),
             // input
-            .input_buffer = std.mem.zeroes([4096]u8),
+            .input_buffer = std.mem.zeroes([32]u8),
             .io_thread = null,
             .event_buffer = undefined,
             .event_queue = std.ArrayList(Event).initBuffer(&self.event_buffer),
@@ -158,37 +155,85 @@ pub const Screen = struct {
         while (self.running) {
             const n = self.read(&self.input_buffer) catch continue;
             self.last_read = self.input_buffer[0..n];
-            self.collectEvents();
+            self.collectEvents(self.input_buffer[0..n]);
         }
     }
-    pub fn collectEvents(self: *Screen) void {
-        if (self.last_read.len == 0) return;
-        var ll = self.last_read;
+
+    const ParseState = enum { start, esc, csi, csi_num, end };
+    const Parser = struct {
+        buf: []u8,
+        i: usize,
+        fn init(buf: []u8) Parser {
+            return .{ .buf = buf, .i = 0 };
+        }
+        fn isEnd(self: *Parser) bool {
+            return self.i >= self.buf.len;
+        }
+        fn next(self: *Parser) u8 {
+            if (self.isEnd()) return 0;
+            self.advance();
+            return self.buf[self.i - 1];
+        }
+        fn remaining(self: *Parser) usize {
+            if (self.isEnd()) return 0;
+            return self.buf.len - self.i;
+        }
+        fn advance(self: *Parser) void {
+            self.i += 1;
+        }
+        fn peek(self: *Parser) u8 {
+            return self.buf[self.i];
+        }
+        fn expect(self: *Parser, c: u8) ?void {
+            if (self.isEnd() or self.peek() != c) return null;
+            self.advance();
+        }
+    };
+
+    pub fn collectEvents(self: *Screen, buf: []u8) void {
+        var p = Parser.init(buf);
         var event: ?Event = null;
-        switch (ll[0]) {
-            'a'...'z', 'A'...'Z', '0'...'9' => |c| {
-                event = .{ .KeyPress = @enumFromInt(c) };
-            },
-            cc.esc => {
-                ll = ll[1..];
-                if (ll.len == 0) {
-                    event = .{ .KeyPress = .esc };
-                    return;
-                }
-                switch (ll[0]) {
-                    '[' => switch (ll[1]) {
-                        'A', 'B', 'C', 'D' => |c| {
-                            event = .{ .KeyPress = .arrow(c) };
-                        },
-                        else => {},
-                    },
-                    else => {},
+        state: switch (ParseState.start) {
+            .start => {
+                switch (p.next()) {
+                    'a'...'z', 'A'...'Z', '0'...'9' => |c| event = .{ .key = @enumFromInt(c) },
+                    cc.esc => continue :state .esc,
+                    else => break :state,
                 }
             },
-            else => {},
+            .esc => {
+                switch (p.next()) {
+                    '[' => continue :state .csi,
+                    else => break :state,
+                }
+            },
+            .csi => {
+                switch (p.next()) {
+                    'A', 'B', 'C', 'D' => |c| event = .{ .key = .arrow(c) },
+                    '0'...'9' => continue :state .csi_num,
+                    else => break :state,
+                }
+            },
+            .csi_num => {
+                const s = p.i - 1;
+                const last_byte = p.buf[p.buf.len - 1];
+                switch (last_byte) {
+                    'R' => event = parseCursorPos(p.buf[s .. p.buf.len - 1]),
+                    else => break :state,
+                }
+            },
+            .end => break :state,
         }
         if (event) |e| self.event_queue.appendBounded(e) catch {};
     }
+
+    fn parseCursorPos(buf: []u8) ?Event {
+        const sep = std.mem.indexOf(u8, buf, ";") orelse return null;
+        const row = std.fmt.parseInt(u16, buf[0..sep], 10) catch return null;
+        const col = std.fmt.parseInt(u16, buf[sep + 1 ..], 10) catch return null;
+        return .{ .cursor_pos = .{ .row = row, .col = col } };
+    }
+
     pub fn pollEvent(self: *Screen) ?Event {
         if (self.event_queue.items.len == 0) return null;
         return self.event_queue.orderedRemove(0);
@@ -197,23 +242,13 @@ pub const Screen = struct {
     /// Move cursor to (x, y) (column, row)
     /// (0, 0) is defined as the bottom left corner of the terminal.
     pub fn goto(self: *Screen, r: u16, c: u16) !void {
-        self.lock.lock();
-        defer self.lock.unlock();
         try self.print(E.GOTO, .{ r, c });
     }
 
-    pub fn query(self: *Screen) !CursorPos {
+    pub fn query(self: *Screen) !void {
         self.lock.lock();
         defer self.lock.unlock();
         _ = try self.tty.write(E.REPORT_CURSOR_POS);
-        // TODO: make this more durable
-        var buf: [32]u8 = undefined;
-        const n = try self.tty.read(&buf);
-        if (!std.mem.startsWith(u8, &buf, E.ESC)) return error.UnknownResponse;
-        const semi = std.mem.indexOf(u8, &buf, ";") orelse return error.ParseError;
-        const row = try std.fmt.parseUnsigned(usize, buf[2..semi], 10);
-        const col = try std.fmt.parseUnsigned(usize, buf[semi + 1 .. n - 1], 10);
-        return .{ .row = row, .col = col };
     }
 
     /// read input
@@ -239,15 +274,13 @@ pub const Screen = struct {
         try self.writer.interface.writeAll(buf);
     }
 
-    pub const WriteArgs = struct { cursor: enum { KEEP, RESTORE_POS } = .KEEP, sleep: usize = 0 };
+    pub const WriteArgs = struct { sleep: usize = 0 };
     pub fn printArgs(self: *Screen, comptime fmt: []const u8, args: anytype, wargs: WriteArgs) !void {
         self.lock.lock();
         defer self.lock.unlock();
         // TODO: check if this will exclude this code from being added at comptime
         if (wargs.sleep != 0) std.Thread.sleep(wargs.sleep);
-        _ = if (wargs.cursor == .RESTORE_POS) try self.writer.interface.writeAll(E.CURSOR_SAVE_POS);
         try self.writer.interface.print(fmt, args);
-        _ = if (wargs.cursor == .RESTORE_POS) try self.writer.interface.writeAll(E.CURSOR_RESTORE_POS);
     }
 
     pub fn flush(self: *Screen) !void {
@@ -288,5 +321,7 @@ pub const Event = union(enum) {
             };
         }
     };
-    KeyPress: Key,
+    pub const CursorPos = struct { row: usize, col: usize };
+    key: Key,
+    cursor_pos: CursorPos,
 };

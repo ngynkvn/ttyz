@@ -4,7 +4,8 @@
 
 const std = @import("std");
 const ttyz = @import("ttyz");
-const E = ttyz.E;
+const ansi = ttyz.ansi;
+const E = ttyz.E; // Keep for format strings (SET_BG_256, SET_TRUCOLOR_BG)
 
 pub fn main(_: std.process.Init) !void {
     var screen = try ttyz.Screen.init();
@@ -14,32 +15,32 @@ pub fn main(_: std.process.Init) !void {
     try screen.home();
 
     // Title
-    try screen.print(E.BOLD ++ E.FG_CYAN ++ "Color Showcase" ++ E.RESET_STYLE ++ "\r\n\r\n", .{});
+    try screen.print(ansi.bold ++ ansi.fg.cyan ++ "Color Showcase" ++ ansi.reset ++ "\r\n\r\n", .{});
 
     // 16 basic colors - foreground
-    try screen.print(E.BOLD ++ "16 Basic Colors (Foreground):" ++ E.RESET_STYLE ++ "\r\n  ", .{});
-    inline for (.{ E.FG_BLACK, E.FG_RED, E.FG_GREEN, E.FG_YELLOW, E.FG_BLUE, E.FG_MAGENTA, E.FG_CYAN, E.FG_WHITE }) |fg| {
-        try screen.print(fg ++ "ABC" ++ E.RESET_STYLE ++ " ", .{});
+    try screen.print(ansi.bold ++ "16 Basic Colors (Foreground):" ++ ansi.reset ++ "\r\n  ", .{});
+    inline for (.{ ansi.fg.black, ansi.fg.red, ansi.fg.green, ansi.fg.yellow, ansi.fg.blue, ansi.fg.magenta, ansi.fg.cyan, ansi.fg.white }) |fg| {
+        try screen.print(fg ++ "ABC" ++ ansi.reset ++ " ", .{});
     }
     try screen.print("\r\n  ", .{});
-    inline for (.{ E.FG_BRIGHT_BLACK, E.FG_BRIGHT_RED, E.FG_BRIGHT_GREEN, E.FG_BRIGHT_YELLOW, E.FG_BRIGHT_BLUE, E.FG_BRIGHT_MAGENTA, E.FG_BRIGHT_CYAN, E.FG_BRIGHT_WHITE }) |fg| {
-        try screen.print(fg ++ "ABC" ++ E.RESET_STYLE ++ " ", .{});
+    inline for (.{ ansi.fg.bright_black, ansi.fg.bright_red, ansi.fg.bright_green, ansi.fg.bright_yellow, ansi.fg.bright_blue, ansi.fg.bright_magenta, ansi.fg.bright_cyan, ansi.fg.bright_white }) |fg| {
+        try screen.print(fg ++ "ABC" ++ ansi.reset ++ " ", .{});
     }
     try screen.print("\r\n\r\n", .{});
 
     // 16 basic colors - background
-    try screen.print(E.BOLD ++ "16 Basic Colors (Background):" ++ E.RESET_STYLE ++ "\r\n  ", .{});
-    inline for (.{ E.BG_BLACK, E.BG_RED, E.BG_GREEN, E.BG_YELLOW, E.BG_BLUE, E.BG_MAGENTA, E.BG_CYAN, E.BG_WHITE }) |bg| {
-        try screen.print(bg ++ "   " ++ E.RESET_STYLE, .{});
+    try screen.print(ansi.bold ++ "16 Basic Colors (Background):" ++ ansi.reset ++ "\r\n  ", .{});
+    inline for (.{ ansi.bg.black, ansi.bg.red, ansi.bg.green, ansi.bg.yellow, ansi.bg.blue, ansi.bg.magenta, ansi.bg.cyan, ansi.bg.white }) |bg| {
+        try screen.print(bg ++ "   " ++ ansi.reset, .{});
     }
     try screen.print("\r\n  ", .{});
-    inline for (.{ E.BG_BRIGHT_BLACK, E.BG_BRIGHT_RED, E.BG_BRIGHT_GREEN, E.BG_BRIGHT_YELLOW, E.BG_BRIGHT_BLUE, E.BG_BRIGHT_MAGENTA, E.BG_BRIGHT_CYAN, E.BG_BRIGHT_WHITE }) |bg| {
-        try screen.print(bg ++ "   " ++ E.RESET_STYLE, .{});
+    inline for (.{ ansi.bg.bright_black, ansi.bg.bright_red, ansi.bg.bright_green, ansi.bg.bright_yellow, ansi.bg.bright_blue, ansi.bg.bright_magenta, ansi.bg.bright_cyan, ansi.bg.bright_white }) |bg| {
+        try screen.print(bg ++ "   " ++ ansi.reset, .{});
     }
     try screen.print("\r\n\r\n", .{});
 
     // 256 colors
-    try screen.print(E.BOLD ++ "256 Color Palette:" ++ E.RESET_STYLE ++ "\r\n", .{});
+    try screen.print(ansi.bold ++ "256 Color Palette:" ++ ansi.reset ++ "\r\n", .{});
 
     // Standard colors (0-15)
     try screen.print("  Standard (0-15):   ", .{});
@@ -65,7 +66,7 @@ pub fn main(_: std.process.Init) !void {
     try screen.print("\r\n\r\n", .{});
 
     // True color gradients
-    try screen.print(E.BOLD ++ "True Color (24-bit):" ++ E.RESET_STYLE ++ "\r\n", .{});
+    try screen.print(ansi.bold ++ "True Color (24-bit):" ++ ansi.reset ++ "\r\n", .{});
 
     // Red gradient
     try screen.print("  Red:      ", .{});
@@ -87,21 +88,21 @@ pub fn main(_: std.process.Init) !void {
     try screen.print("\r\n\r\n", .{});
 
     // Text styles
-    try screen.print(E.BOLD ++ "Text Styles:" ++ E.RESET_STYLE ++ "\r\n", .{});
-    try screen.print("  " ++ E.BOLD ++ "Bold" ++ E.RESET_STYLE ++ "  ", .{});
-    try screen.print(E.DIM ++ "Dim" ++ E.RESET_STYLE ++ "  ", .{});
-    try screen.print(E.ITALIC ++ "Italic" ++ E.RESET_STYLE ++ "  ", .{});
-    try screen.print(E.UNDERLINE ++ "Underline" ++ E.RESET_STYLE ++ "  ", .{});
-    try screen.print(E.REVERSE ++ "Reverse" ++ E.RESET_STYLE ++ "  ", .{});
-    try screen.print(E.STRIKETHROUGH ++ "Strike" ++ E.RESET_STYLE ++ "\r\n\r\n", .{});
+    try screen.print(ansi.bold ++ "Text Styles:" ++ ansi.reset ++ "\r\n", .{});
+    try screen.print("  " ++ ansi.bold ++ "Bold" ++ ansi.reset ++ "  ", .{});
+    try screen.print(ansi.faint ++ "Dim" ++ ansi.reset ++ "  ", .{});
+    try screen.print(ansi.italic ++ "Italic" ++ ansi.reset ++ "  ", .{});
+    try screen.print(ansi.underline ++ "Underline" ++ ansi.reset ++ "  ", .{});
+    try screen.print(ansi.reverse ++ "Reverse" ++ ansi.reset ++ "  ", .{});
+    try screen.print(ansi.crossed_out ++ "Strike" ++ ansi.reset ++ "\r\n\r\n", .{});
 
     // Example colored output
-    try screen.print(E.BOLD ++ "Example Colored Output:" ++ E.RESET_STYLE ++ "\r\n", .{});
-    try screen.print("  " ++ E.FG_GREEN ++ "Success:" ++ E.RESET_STYLE ++ " Operation completed\r\n", .{});
-    try screen.print("  " ++ E.FG_YELLOW ++ "Warning:" ++ E.RESET_STYLE ++ " Check configuration\r\n", .{});
-    try screen.print("  " ++ E.FG_RED ++ "Error:" ++ E.RESET_STYLE ++ " Something went wrong\r\n", .{});
-    try screen.print("  " ++ E.BG_BLUE ++ E.FG_WHITE ++ E.BOLD ++ " INFO " ++ E.RESET_STYLE ++ " Background + foreground + style\r\n", .{});
-    try screen.print("  " ++ E.ITALIC ++ E.FG_CYAN ++ "Styled " ++ E.FG_MAGENTA ++ "rainbow " ++ E.FG_YELLOW ++ "text" ++ E.RESET_STYLE ++ "\r\n\r\n", .{});
+    try screen.print(ansi.bold ++ "Example Colored Output:" ++ ansi.reset ++ "\r\n", .{});
+    try screen.print("  " ++ ansi.fg.green ++ "Success:" ++ ansi.reset ++ " Operation completed\r\n", .{});
+    try screen.print("  " ++ ansi.fg.yellow ++ "Warning:" ++ ansi.reset ++ " Check configuration\r\n", .{});
+    try screen.print("  " ++ ansi.fg.red ++ "Error:" ++ ansi.reset ++ " Something went wrong\r\n", .{});
+    try screen.print("  " ++ ansi.bg.blue ++ ansi.fg.white ++ ansi.bold ++ " INFO " ++ ansi.reset ++ " Background + foreground + style\r\n", .{});
+    try screen.print("  " ++ ansi.italic ++ ansi.fg.cyan ++ "Styled " ++ ansi.fg.magenta ++ "rainbow " ++ ansi.fg.yellow ++ "text" ++ ansi.reset ++ "\r\n\r\n", .{});
 
     try screen.print("Press any key to exit...", .{});
     try screen.flush();

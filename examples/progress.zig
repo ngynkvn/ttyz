@@ -4,7 +4,7 @@
 
 const std = @import("std");
 const ttyz = @import("ttyz");
-const E = ttyz.E;
+const ansi = ttyz.ansi;
 const text = ttyz.text;
 
 /// Draw a simple progress bar
@@ -13,7 +13,7 @@ fn drawProgressBar(screen: *ttyz.Screen, progress: f32, width: u16) !void {
     const empty = width - filled;
 
     try screen.print("[", .{});
-    try screen.print(E.FG_GREEN, .{});
+    try screen.print(ansi.fg.green, .{});
 
     var i: u16 = 0;
     while (i < filled) : (i += 1) {
@@ -25,7 +25,7 @@ fn drawProgressBar(screen: *ttyz.Screen, progress: f32, width: u16) !void {
     } else {
         i = 0;
     }
-    try screen.print(E.RESET_STYLE, .{});
+    try screen.print(ansi.reset, .{});
     while (i < empty) : (i += 1) {
         try screen.print(" ", .{});
     }
@@ -50,7 +50,7 @@ pub fn main(init: std.process.Init) !void {
         try screen.clearScreen();
         try screen.home();
 
-        try screen.print(E.BOLD ++ "Progress Demo" ++ E.RESET_STYLE ++ "\r\n\r\n", .{});
+        try screen.print(ansi.bold ++ "Progress Demo" ++ ansi.reset ++ "\r\n\r\n", .{});
 
         // Main progress bar
         const progress = @as(f32, @floatFromInt(step)) / @as(f32, @floatFromInt(total_steps));
@@ -60,9 +60,9 @@ pub fn main(init: std.process.Init) !void {
 
         // Different spinner styles
         try screen.print("  Spinners:\r\n", .{});
-        try screen.print("    Basic:   " ++ E.FG_CYAN ++ "{s}" ++ E.RESET_STYLE ++ "  Working...\r\n", .{spinners[frame % spinners.len]});
-        try screen.print("    Dots:    " ++ E.FG_YELLOW ++ "{s}" ++ E.RESET_STYLE ++ "  Loading\r\n", .{dots[(frame / 2) % dots.len]});
-        try screen.print("    Braille: " ++ E.FG_MAGENTA ++ "{s}" ++ E.RESET_STYLE ++ "  Processing\r\n\r\n", .{braille[frame % braille.len]});
+        try screen.print("    Basic:   " ++ ansi.fg.cyan ++ "{s}" ++ ansi.reset ++ "  Working...\r\n", .{spinners[frame % spinners.len]});
+        try screen.print("    Dots:    " ++ ansi.fg.yellow ++ "{s}" ++ ansi.reset ++ "  Loading\r\n", .{dots[(frame / 2) % dots.len]});
+        try screen.print("    Braille: " ++ ansi.fg.magenta ++ "{s}" ++ ansi.reset ++ "  Processing\r\n\r\n", .{braille[frame % braille.len]});
 
         // Multiple concurrent progress bars
         try screen.print("  Multiple tasks:\r\n", .{});
@@ -77,16 +77,16 @@ pub fn main(init: std.process.Init) !void {
         for (task_names, task_progress) |name, p| {
             try screen.print("    {s} ", .{name});
             if (p >= 1.0) {
-                try screen.print(E.FG_GREEN ++ "[done]" ++ E.RESET_STYLE ++ "\r\n", .{});
+                try screen.print(ansi.fg.green ++ "[done]" ++ ansi.reset ++ "\r\n", .{});
             } else if (p > 0) {
                 try drawProgressBar(&screen, p, 20);
                 try screen.print("\r\n", .{});
             } else {
-                try screen.print(E.DIM ++ "[waiting]" ++ E.RESET_STYLE ++ "\r\n", .{});
+                try screen.print(ansi.faint ++ "[waiting]" ++ ansi.reset ++ "\r\n", .{});
             }
         }
 
-        try screen.print("\r\n" ++ E.DIM ++ "  Step {}/{}" ++ E.RESET_STYLE, .{ step, total_steps });
+        try screen.print("\r\n" ++ ansi.faint ++ "  Step {}/{}" ++ ansi.reset, .{ step, total_steps });
         try screen.flush();
 
         init.io.sleep(std.Io.Duration.fromMilliseconds(33), .awake) catch {};
@@ -95,7 +95,7 @@ pub fn main(init: std.process.Init) !void {
     }
 
     // Completion message
-    try screen.print("\r\n\r\n" ++ E.FG_GREEN ++ E.BOLD ++ "  Complete!" ++ E.RESET_STYLE ++ "\r\n", .{});
+    try screen.print("\r\n\r\n" ++ ansi.fg.green ++ ansi.bold ++ "  Complete!" ++ ansi.reset ++ "\r\n", .{});
     try screen.flush();
     init.io.sleep(std.Io.Duration.fromSeconds(1), .awake) catch {};
 }

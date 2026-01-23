@@ -12,7 +12,7 @@ const std = @import("std");
 const ttyz = @import("ttyz");
 const kitty = ttyz.kitty;
 const draw = ttyz.draw;
-const E = ttyz.E;
+const ansi = ttyz.ansi;
 
 pub fn main(init: std.process.Init) !void {
     const allocator = init.arena.allocator();
@@ -23,7 +23,7 @@ pub fn main(init: std.process.Init) !void {
     try screen.clearScreen();
     try screen.home();
 
-    try screen.print(E.BOLD ++ "Kitty Graphics Protocol Demo" ++ E.RESET_STYLE ++ "\r\n\r\n", .{});
+    try screen.print(ansi.bold ++ "Kitty Graphics Protocol Demo" ++ ansi.reset ++ "\r\n\r\n", .{});
     try screen.print("This demo shows images using the Kitty graphics protocol.\r\n", .{});
     try screen.print("Works in: Kitty, WezTerm, Ghostty, and compatible terminals.\r\n\r\n", .{});
 
@@ -123,7 +123,7 @@ pub fn main(init: std.process.Init) !void {
     try screen.flush();
 
     try screen.print("\r\n\r\n", .{});
-    try screen.print(E.DIM ++ "Press any key to clear images and exit..." ++ E.RESET_STYLE, .{});
+    try screen.print(ansi.faint ++ "Press any key to clear images and exit..." ++ ansi.reset, .{});
     try screen.flush();
 
     // Wait for keypress

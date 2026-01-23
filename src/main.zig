@@ -2,7 +2,7 @@ const std = @import("std");
 const ttyz = @import("ttyz");
 const builtin = std.builtin;
 const termdraw = ttyz.termdraw;
-const E = ttyz.E;
+const ansi = ttyz.ansi;
 const layout = ttyz.layout;
 
 pub fn main(init: std.process.Init) !void {
@@ -93,13 +93,13 @@ pub fn main(init: std.process.Init) !void {
         try s.home();
 
         // Title and instructions
-        try s.print(E.BOLD ++ "ttyz Layout Demo" ++ E.RESET_STYLE ++ "\r\n\r\n", .{});
-        try s.print("Active: " ++ E.FG_GREEN ++ "{s}" ++ E.RESET_STYLE ++ "  ", .{if (active_panel == .left) "Left" else "Right"});
-        try s.print("Cursor: " ++ E.FG_MAGENTA ++ "({d}, {d})" ++ E.RESET_STYLE ++ "\r\n", .{ cursor_col, cursor_row });
+        try s.print(ansi.bold ++ "ttyz Layout Demo" ++ ansi.reset ++ "\r\n\r\n", .{});
+        try s.print("Active: " ++ ansi.fg.green ++ "{s}" ++ ansi.reset ++ "  ", .{if (active_panel == .left) "Left" else "Right"});
+        try s.print("Cursor: " ++ ansi.fg.magenta ++ "({d}, {d})" ++ ansi.reset ++ "\r\n", .{ cursor_col, cursor_row });
 
         // Mouse info with SGR details
-        try s.print("Mouse: " ++ E.FG_YELLOW ++ "({d}, {d})" ++ E.RESET_STYLE, .{ mouse_col, mouse_row });
-        try s.print("  btn=" ++ E.FG_CYAN ++ "{s}" ++ E.RESET_STYLE, .{@tagName(mouse_button)});
+        try s.print("Mouse: " ++ ansi.fg.yellow ++ "({d}, {d})" ++ ansi.reset, .{ mouse_col, mouse_row });
+        try s.print("  btn=" ++ ansi.fg.cyan ++ "{s}" ++ ansi.reset, .{@tagName(mouse_button)});
         try s.print(" {s}", .{@tagName(mouse_state)});
         if (mouse_mods.shift or mouse_mods.meta or mouse_mods.ctrl) {
             try s.print(" [", .{});
@@ -110,9 +110,9 @@ pub fn main(init: std.process.Init) !void {
         }
         try s.print("\r\n", .{});
 
-        try s.print("Size input: " ++ E.FG_CYAN ++ "{s}" ++ E.RESET_STYLE ++ "\r\n\r\n", .{s.textinput.items});
-        try s.print(E.DIM ++ "Type WxH (e.g. 10x5) + Enter to resize active panel\r\n", .{});
-        try s.print("Tab to switch panel, q to quit" ++ E.RESET_STYLE ++ "\r\n\r\n", .{});
+        try s.print("Size input: " ++ ansi.fg.cyan ++ "{s}" ++ ansi.reset ++ "\r\n\r\n", .{s.textinput.items});
+        try s.print(ansi.faint ++ "Type WxH (e.g. 10x5) + Enter to resize active panel\r\n", .{});
+        try s.print("Tab to switch panel, q to quit" ++ ansi.reset ++ "\r\n\r\n", .{});
 
         // Render all layout commands
         for (commands) |cmd| {

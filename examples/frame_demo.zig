@@ -2,6 +2,7 @@
 //!
 //! This example shows:
 //! - Creating a Buffer and Frame
+//! - Using Layout to split areas
 //! - Drawing rectangles with different border styles
 //! - Drawing styled text
 //! - Rendering to the terminal
@@ -14,6 +15,7 @@ const Buffer = ttyz.Buffer;
 const Cell = ttyz.Cell;
 const Rect = ttyz.Rect;
 const frame = ttyz.frame;
+const Layout = frame.Layout;
 
 const Style = frame.Style;
 const Color = frame.Color;
@@ -63,85 +65,112 @@ const App = struct {
         var f = Frame.init(&self.buffer);
         f.clear();
 
-        // Draw main border
-        const main_rect = Rect{ .x = 0, .y = 0, .width = screen.width, .height = screen.height };
-        f.drawRectStyled(main_rect, .double, .{}, Color.cyan, .default);
+        // Use Layout to split into header, content, and footer
+        const main_areas = f.areas(3, Layout(3).vertical(.{
+            .{ .length = 3 }, // header
+            .{ .fill = 1 }, // content
+            .{ .length = 1 }, // footer
+        }));
+        const header = main_areas[0];
+        const content = main_areas[1];
+        const footer = main_areas[2];
 
-        // Title
+        // Draw header with title
+        f.drawRectStyled(header, .double, .{}, Color.cyan, .default);
         const title = " Frame Demo ";
-        const title_x = (screen.width - @as(u16, @intCast(title.len))) / 2;
-        f.setString(title_x, 0, title, .{ .bold = true }, Color.yellow, .default);
+        const title_x = header.x + (header.width - @as(u16, @intCast(title.len))) / 2;
+        f.setString(title_x, header.y, title, .{ .bold = true }, Color.yellow, .default);
+        f.setString(header.x + 2, header.y + 1, "Use arrow keys to change border style, Q to quit", .{}, .default, .default);
 
-        // Instructions
-        f.setString(2, 2, "Use arrow keys to change border style, Q to quit", .{}, .default, .default);
+        // Split content into top (border showcase) and bottom (demos)
+        const content_areas = Layout(2).vertical(.{
+            .{ .length = 8 }, // border showcase
+            .{ .fill = 1 }, // demos
+        }).areas(content);
+        const showcase_area = content_areas[0];
+        const demo_area = content_areas[1];
 
-        // Draw a showcase of border styles
-        var x: u16 = 2;
+        // Draw border style showcase using horizontal layout
+        const showcase_cols = Layout(4).horizontal(.{
+            .{ .fill = 1 },
+            .{ .fill = 1 },
+            .{ .fill = 1 },
+            .{ .fill = 1 },
+        }).withSpacing(2).areas(showcase_area.inner(1));
+
         for (border_styles, 0..) |style, i| {
-            const rect = Rect{ .x = x, .y = 4, .width = 16, .height = 7 };
+            const col = showcase_cols[i];
+            const rect = Rect{ .x = col.x, .y = col.y, .width = @min(col.width, 16), .height = 7 };
             const is_selected = i == self.selected_border;
             const fg: Color = if (is_selected) Color.green else .default;
             const text_style: Style = if (is_selected) .{ .bold = true } else .{};
 
             f.drawRectStyled(rect, style, text_style, fg, .default);
 
-            // Label
             const name = border_names[i];
-            const label_x = x + (16 - @as(u16, @intCast(name.len))) / 2;
-            f.setString(label_x, 5, name, text_style, fg, .default);
+            const label_x = rect.x + (rect.width - @as(u16, @intCast(name.len))) / 2;
+            f.setString(label_x, rect.y + 1, name, text_style, fg, .default);
 
             if (is_selected) {
-                f.setString(x + 3, 7, "(selected)", .{ .dim = true }, .default, .default);
+                f.setString(rect.x + 3, rect.y + 3, "(selected)", .{ .dim = true }, .default, .default);
             }
-
-            x += 18;
         }
 
+        // Split demo area into left (styles) and right (colors)
+        const demo_cols = Layout(2).horizontal(.{
+            .{ .fill = 1 },
+            .{ .fill = 1 },
+        }).withSpacing(2).areas(demo_area);
+        const style_area = demo_cols[0];
+        const color_area = demo_cols[1];
+
         // Style demo box
-        const style_box = Rect{ .x = 2, .y = 12, .width = 40, .height = 10 };
-        f.drawRect(style_box, border_styles[self.selected_border]);
-        f.setString(4, 12, " Text Styles ", .{}, Color.magenta, .default);
+        f.drawRect(style_area, border_styles[self.selected_border]);
+        f.setString(style_area.x + 2, style_area.y, " Text Styles ", .{}, Color.magenta, .default);
 
         // Demonstrate various text styles
-        f.setString(4, 14, "Normal text", .{}, .default, .default);
-        f.setString(4, 15, "Bold text", .{ .bold = true }, .default, .default);
-        f.setString(4, 16, "Italic text", .{ .italic = true }, .default, .default);
-        f.setString(4, 17, "Underlined text", .{ .underline = true }, .default, .default);
-        f.setString(4, 18, "Dim text", .{ .dim = true }, .default, .default);
-        f.setString(4, 19, "Reversed text", .{ .reverse = true }, .default, .default);
+        const sy = style_area.y + 2;
+        const sx = style_area.x + 2;
+        f.setString(sx, sy, "Normal text", .{}, .default, .default);
+        f.setString(sx, sy + 1, "Bold text", .{ .bold = true }, .default, .default);
+        f.setString(sx, sy + 2, "Italic text", .{ .italic = true }, .default, .default);
+        f.setString(sx, sy + 3, "Underlined text", .{ .underline = true }, .default, .default);
+        f.setString(sx, sy + 4, "Dim text", .{ .dim = true }, .default, .default);
+        f.setString(sx, sy + 5, "Reversed text", .{ .reverse = true }, .default, .default);
 
-        // Color demo
-        f.setString(25, 14, "Red", .{ .bold = true }, Color.red, .default);
-        f.setString(25, 15, "Green", .{ .bold = true }, Color.green, .default);
-        f.setString(25, 16, "Blue", .{ .bold = true }, Color.blue, .default);
-        f.setString(25, 17, "Yellow", .{ .bold = true }, Color.yellow, .default);
-        f.setString(25, 18, "Cyan", .{ .bold = true }, Color.cyan, .default);
-        f.setString(25, 19, "Magenta", .{ .bold = true }, Color.magenta, .default);
+        // Color demo in right column
+        f.drawRect(color_area, .rounded);
+        f.setString(color_area.x + 2, color_area.y, " Colors ", .{}, .default, .default);
 
-        // RGB color demo
-        const rgb_box = Rect{ .x = 44, .y = 12, .width = 30, .height = 10 };
-        f.drawRect(rgb_box, .rounded);
-        f.setString(46, 12, " RGB Colors ", .{}, .default, .default);
+        const cy = color_area.y + 2;
+        const cx = color_area.x + 2;
+        f.setString(cx, cy, "Red", .{ .bold = true }, Color.red, .default);
+        f.setString(cx, cy + 1, "Green", .{ .bold = true }, Color.green, .default);
+        f.setString(cx, cy + 2, "Blue", .{ .bold = true }, Color.blue, .default);
+        f.setString(cx, cy + 3, "Yellow", .{ .bold = true }, Color.yellow, .default);
+        f.setString(cx, cy + 4, "Cyan", .{ .bold = true }, Color.cyan, .default);
+        f.setString(cx, cy + 5, "Magenta", .{ .bold = true }, Color.magenta, .default);
 
-        // Draw a gradient-like display
-        var row: u16 = 14;
-        while (row < 20) : (row += 1) {
-            var col: u16 = 46;
-            while (col < 72) : (col += 1) {
-                const r: u8 = @intCast((col - 46) * 10);
-                const g: u8 = @intCast((row - 14) * 40);
-                const b: u8 = 128;
-                f.buffer.set(col, row, .{
+        // RGB gradient in color area
+        const grad_y = cy + 7;
+        if (grad_y < color_area.bottom() - 1) {
+            var col: u16 = cx;
+            while (col < color_area.right() - 2) : (col += 1) {
+                const r: u8 = @intCast(@min(255, (col - cx) * 10));
+                const g: u8 = 128;
+                const b: u8 = @intCast(255 -| (col - cx) * 10);
+                f.buffer.set(col, grad_y, .{
                     .char = ' ',
                     .bg = Color{ .rgb = .{ .r = r, .g = g, .b = b } },
                 });
             }
         }
 
-        // Frame counter
-        var buf: [32]u8 = undefined;
-        const counter_text = std.fmt.bufPrint(&buf, "Frame: {}", .{self.frame_count}) catch "Frame: ???";
-        f.setString(screen.width - @as(u16, @intCast(counter_text.len)) - 2, screen.height - 1, counter_text, .{ .dim = true }, .default, .default);
+        // Footer with frame counter
+        var buf: [64]u8 = undefined;
+        const counter_text = std.fmt.bufPrint(&buf, " Frame: {} | Screen: {}x{} ", .{ self.frame_count, screen.width, screen.height }) catch " Frame: ??? ";
+        f.fillRect(footer, .{ .char = ' ', .bg = Color{ .indexed = 236 } });
+        f.setString(footer.x + 1, footer.y, counter_text, .{}, .default, Color{ .indexed = 236 });
 
         self.frame_count += 1;
 

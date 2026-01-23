@@ -3,7 +3,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-const Cell = @import("cell.zig").Cell;
+const Cell = @import("types.zig").Cell;
 const Rect = @import("rect.zig").Rect;
 
 /// A 2D grid of cells representing the terminal buffer.

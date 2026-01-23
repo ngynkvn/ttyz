@@ -379,6 +379,63 @@ pub const Image = struct {
 };
 
 // =============================================================================
+// Canvas - Pixel buffer for drawing
+// =============================================================================
+
+/// A pixel canvas with RGBA storage for drawing operations.
+pub const Canvas = struct {
+    width: usize,
+    height: usize,
+    pixels: []u8,
+
+    pub fn initAlloc(allocator: std.mem.Allocator, width: usize, height: usize) !Canvas {
+        const pixels = try allocator.alloc(u8, width * height * 4);
+        return .{ .width = width, .height = height, .pixels = pixels };
+    }
+
+    pub fn init(width: usize, height: usize, pixels: []u8) Canvas {
+        return .{ .width = width, .height = height, .pixels = pixels };
+    }
+
+    pub fn deinit(self: *Canvas, allocator: std.mem.Allocator) void {
+        allocator.free(self.pixels);
+    }
+
+    pub fn display(self: *Canvas, writer: anytype) !void {
+        try displayRgba(writer, self.pixels, self.width, self.height);
+    }
+
+    pub fn drawBox(self: *Canvas, x: usize, y: usize, width: usize, height: usize, color: u32) void {
+        const a, const g, const b, const r = std.mem.toBytes(color);
+        for (0..width) |i| {
+            for (0..height) |j| {
+                const idx = (y + j) * (self.width * 4) + (x + i) * 4;
+                if (idx + 3 < self.pixels.len) {
+                    self.pixels[idx] = b;
+                    self.pixels[idx + 1] = g;
+                    self.pixels[idx + 2] = r;
+                    self.pixels[idx + 3] = a;
+                }
+            }
+        }
+    }
+
+    pub fn setPixel(self: *Canvas, x: usize, y: usize, r: u8, g: u8, b: u8, a: u8) void {
+        const idx = y * (self.width * 4) + x * 4;
+        if (idx + 3 < self.pixels.len) {
+            self.pixels[idx] = r;
+            self.pixels[idx + 1] = g;
+            self.pixels[idx + 2] = b;
+            self.pixels[idx + 3] = a;
+        }
+    }
+
+    pub fn clear(self: *Canvas) void {
+        @memset(self.pixels, 0);
+    }
+};
+
+// =============================================================================
 // Tests
 // =============================================================================
 

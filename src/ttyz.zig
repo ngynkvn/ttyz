@@ -33,8 +33,10 @@ const system = posix.system;
 /// Kitty graphics protocol for terminal image display.
 pub const kitty = @import("kitty.zig");
 
-/// Pixel-level RGBA canvas drawing with Kitty output.
-pub const draw = @import("draw.zig");
+/// Pixel-level RGBA canvas (alias for kitty.Canvas).
+pub const draw = struct {
+    pub const Canvas = kitty.Canvas;
+};
 
 /// Box drawing with Unicode characters.
 pub const termdraw = @import("termdraw.zig");

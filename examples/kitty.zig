@@ -36,14 +36,9 @@ pub fn main(init: std.process.Init) !void {
     // Fill with a rainbow gradient
     for (0..gradient_height) |y| {
         for (0..gradient_width) |x| {
-            const idx = y * gradient_width * 4 + x * 4;
-            // HSV to RGB conversion for rainbow effect
             const hue: f32 = @as(f32, @floatFromInt(x)) / @as(f32, @floatFromInt(gradient_width));
             const r, const g, const b = hsvToRgb(hue, 1.0, 1.0);
-            gradient.canvas[idx] = r;
-            gradient.canvas[idx + 1] = g;
-            gradient.canvas[idx + 2] = b;
-            gradient.canvas[idx + 3] = 255; // Alpha
+            gradient.setPixel(x, y, r, g, b, 255);
         }
     }
 
@@ -55,7 +50,7 @@ pub fn main(init: std.process.Init) !void {
     var buf: [65536]u8 = undefined;
     var writer = std.Io.Writer.fixed(&buf);
 
-    try gradient.writeKitty(&writer);
+    try gradient.display(&writer);
 
     // Write the kitty command to screen
     _ = try screen.write(writer.buffered());
@@ -71,21 +66,13 @@ pub fn main(init: std.process.Init) !void {
     const cell_size: usize = 10;
     for (0..checker_size) |y| {
         for (0..checker_size) |x| {
-            const idx = y * checker_size * 4 + x * 4;
             const cx = x / cell_size;
             const cy = y / cell_size;
             const is_dark = (cx + cy) % 2 == 0;
-
             if (is_dark) {
-                checker.canvas[idx] = 50; // R
-                checker.canvas[idx + 1] = 50; // G
-                checker.canvas[idx + 2] = 80; // B
-                checker.canvas[idx + 3] = 255; // A
+                checker.setPixel(x, y, 50, 50, 80, 255);
             } else {
-                checker.canvas[idx] = 200; // R
-                checker.canvas[idx + 1] = 200; // G
-                checker.canvas[idx + 2] = 220; // B
-                checker.canvas[idx + 3] = 128; // A - semi-transparent
+                checker.setPixel(x, y, 200, 200, 220, 128);
             }
         }
     }
@@ -94,7 +81,7 @@ pub fn main(init: std.process.Init) !void {
     try screen.flush();
 
     writer = std.Io.Writer.fixed(&buf);
-    try checker.writeKitty(&writer);
+    try checker.display(&writer);
     _ = try screen.write(writer.buffered());
     try screen.flush();
 
@@ -106,19 +93,18 @@ pub fn main(init: std.process.Init) !void {
     var boxes = try draw.Canvas.initAlloc(allocator, box_width, box_height);
     defer boxes.deinit(allocator);
 
-    // Clear to black
-    @memset(boxes.canvas, 0);
+    boxes.clear();
 
     // Draw red, green, blue boxes
-    try boxes.drawBox(5, 5, 40, 30, 0xFF0000FF); // Red
-    try boxes.drawBox(55, 5, 40, 30, 0xFF00FF00); // Green
-    try boxes.drawBox(105, 5, 40, 30, 0xFFFF0000); // Blue
+    boxes.drawBox(5, 5, 40, 30, 0xFF0000FF); // Red
+    boxes.drawBox(55, 5, 40, 30, 0xFF00FF00); // Green
+    boxes.drawBox(105, 5, 40, 30, 0xFFFF0000); // Blue
 
     try screen.print("3. Colored boxes (RGB):\r\n", .{});
     try screen.flush();
 
     writer = std.Io.Writer.fixed(&buf);
-    try boxes.writeKitty(&writer);
+    try boxes.display(&writer);
     _ = try screen.write(writer.buffered());
     try screen.flush();
 

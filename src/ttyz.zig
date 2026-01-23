@@ -137,14 +137,12 @@ pub const Screen = struct {
     width: u16,
     /// Terminal height in rows.
     height: u16,
-    /// Internal output buffer.
-    buffer: [4096]u8,
-    /// Position in the output buffer.
-    buffer_pos: usize,
-    /// Last read data (internal use).
-    last_read: []u8,
     /// Mutex for thread-safe output operations.
     lock: std.Thread.Mutex,
+    /// Buffered writer for terminal output.
+    writer: std.Io.File.Writer,
+    /// Buffer for the writer.
+    writer_buffer: [4096]u8,
     /// Queue for pending input events.
     event_queue: BoundedQueue(Event, 32),
     /// Background I/O thread handle.
@@ -157,8 +155,6 @@ pub const Screen = struct {
     textinput_buffer: [32]u8,
     /// Text input accumulator.
     textinput: std.ArrayList(u8),
-    /// Buffered writer for terminal output.
-    writer: std.Io.File.Writer,
     /// ANSI escape sequence parser for input.
     input_parser: parser.Parser,
 
@@ -213,12 +209,9 @@ pub const Screen = struct {
             .running = true,
             .width = 0,
             .height = 0,
-            .last_read = &.{},
-            // writer
             .lock = .{},
-            .buffer = std.mem.zeroes([4096]u8),
-            .buffer_pos = 0,
-            .writer = undefined,
+            .writer = f.writerStreaming(io, &self.writer_buffer),
+            .writer_buffer = undefined,
             // input
             .io_thread = null,
             .event_queue = BoundedQueue(Event, 32).init(),
@@ -227,7 +220,6 @@ pub const Screen = struct {
             .textinput = std.ArrayList(u8).initBuffer(&self.textinput_buffer),
             .input_parser = parser.Parser.init(),
         };
-        self.writer = f.writerStreaming(io, &.{});
 
         const ws = try self.querySize();
         self.width = ws.col;
@@ -245,29 +237,14 @@ pub const Screen = struct {
         return n;
     }
 
-    /// Write bytes to internal buffer.
-    fn writeRaw(self: *Screen, bytes: []const u8) WriteError!usize {
-        const space = self.buffer.len - self.buffer_pos;
-        if (bytes.len > space) {
-            try self.flushBuffer();
-        }
-        const to_copy = @min(bytes.len, self.buffer.len - self.buffer_pos);
-        @memcpy(self.buffer[self.buffer_pos..][0..to_copy], bytes[0..to_copy]);
-        self.buffer_pos += to_copy;
-        return to_copy;
+    /// Write bytes to the buffered writer.
+    fn writeRaw(self: *Screen, bytes: []const u8) !usize {
+        return self.writer.interface.write(bytes);
     }
 
-    /// Flush internal buffer to terminal.
-    fn flushBuffer(self: *Screen) WriteError!void {
-        if (self.buffer_pos > 0) {
-            var written: usize = 0;
-            while (written < self.buffer_pos) {
-                const rc = system.write(self.fd, self.buffer[written..].ptr, self.buffer_pos - written);
-                if (rc < 0) return error.WriteFailed;
-                written += @as(usize, @intCast(rc));
-            }
-            self.buffer_pos = 0;
-        }
+    /// Flush the buffered writer to terminal.
+    fn flushBuffer(self: *Screen) !void {
+        try self.writer.flush();
     }
 
     /// Clean up and restore terminal to its original state.
@@ -415,7 +392,7 @@ pub const Screen = struct {
     pub fn write(self: *Screen, buf: []const u8) !usize {
         self.lock.lock();
         defer self.lock.unlock();
-        return try self.writeRaw(buf);
+        return try self.writer.interface.write(buf);
     }
 
     /// Write all bytes to the terminal.
@@ -423,7 +400,7 @@ pub const Screen = struct {
     pub fn writeAll(self: *Screen, buf: []const u8) !void {
         self.lock.lock();
         defer self.lock.unlock();
-        _ = try self.writeRaw(buf);
+        try self.writer.interface.writeAll(buf);
     }
 
     /// Print formatted output with additional options.
@@ -438,9 +415,7 @@ pub const Screen = struct {
             };
             _ = std.c.nanosleep(&ts, null);
         }
-        var buf: [4096]u8 = undefined;
-        const slice = std.fmt.bufPrint(&buf, fmt, args) catch return;
-        _ = try self.writeRaw(slice);
+        try self.writer.interface.print(fmt, args);
     }
 
     /// Flush the output buffer to the terminal.
@@ -448,7 +423,7 @@ pub const Screen = struct {
     pub fn flush(self: *Screen) !void {
         self.lock.lock();
         defer self.lock.unlock();
-        return self.flushBuffer();
+        try self.writer.flush();
     }
 
     /// Clear the entire screen.

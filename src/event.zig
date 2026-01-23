@@ -158,4 +158,6 @@ pub const Event = union(enum) {
     focus: bool,
     /// Ctrl+C was pressed.
     interrupt: void,
+    /// Terminal window was resized.
+    resize: struct { width: u16, height: u16 },
 };

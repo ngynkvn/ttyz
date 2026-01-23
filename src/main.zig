@@ -137,6 +137,11 @@ pub fn main(init: std.process.Init) !void {
                 .focus => |focused| {
                     std.log.info("focus changed: {}", .{focused});
                 },
+                .resize => |r| {
+                    s.width = r.width;
+                    s.height = r.height;
+                    std.log.info("resize: {}x{}", .{ r.width, r.height });
+                },
                 .interrupt => s.running = false,
             }
         }

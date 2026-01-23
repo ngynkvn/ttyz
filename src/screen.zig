@@ -404,3 +404,267 @@ pub const TtyBackend = backend_mod.TtyBackend;
 pub const TestBackend = backend_mod.TestBackend;
 const Event = @import("event.zig").Event;
 const parser = @import("parser.zig");
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+test "Screen.initTest creates screen with test backend" {
+    var backend = TestBackend.init(std.testing.allocator, 80, 24);
+    defer backend.deinit();
+
+    var events_buf: [8]Event = undefined;
+    var textinput_buf: [16]u8 = undefined;
+    var writer_buf: [64]u8 = undefined;
+
+    var screen = try Screen.initTest(&backend, .{
+        .events = &events_buf,
+        .textinput = &textinput_buf,
+        .writer = &writer_buf,
+        .alt_screen = false,
+        .hide_cursor = false,
+        .mouse_tracking = false,
+    });
+    defer _ = screen.deinit() catch {};
+
+    try std.testing.expectEqual(@as(u16, 80), screen.width);
+    try std.testing.expectEqual(@as(u16, 24), screen.height);
+    try std.testing.expect(screen.running);
+}
+
+test "Screen.pushEvent and pollEvent" {
+    var backend = TestBackend.init(std.testing.allocator, 80, 24);
+    defer backend.deinit();
+
+    var events_buf: [8]Event = undefined;
+    var textinput_buf: [16]u8 = undefined;
+    var writer_buf: [64]u8 = undefined;
+
+    var screen = try Screen.initTest(&backend, .{
+        .events = &events_buf,
+        .textinput = &textinput_buf,
+        .writer = &writer_buf,
+        .alt_screen = false,
+        .hide_cursor = false,
+        .mouse_tracking = false,
+    });
+    defer _ = screen.deinit() catch {};
+
+    // Queue should be empty initially
+    try std.testing.expectEqual(@as(?Event, null), screen.pollEvent());
+
+    // Push some events
+    screen.pushEvent(.{ .key = .a });
+    screen.pushEvent(.{ .key = .b });
+    screen.pushEvent(.interrupt);
+
+    // Poll them back in order
+    const e1 = screen.pollEvent().?;
+    try std.testing.expectEqual(Event.Key.a, e1.key);
+
+    const e2 = screen.pollEvent().?;
+    try std.testing.expectEqual(Event.Key.b, e2.key);
+
+    const e3 = screen.pollEvent().?;
+    try std.testing.expect(e3 == .interrupt);
+
+    // Queue empty again
+    try std.testing.expectEqual(@as(?Event, null), screen.pollEvent());
+}
+
+test "Screen.actionToEvent - execute actions" {
+    var backend = TestBackend.init(std.testing.allocator, 80, 24);
+    defer backend.deinit();
+
+    var events_buf: [8]Event = undefined;
+    var textinput_buf: [16]u8 = undefined;
+    var writer_buf: [64]u8 = undefined;
+
+    var screen = try Screen.initTest(&backend, .{
+        .events = &events_buf,
+        .textinput = &textinput_buf,
+        .writer = &writer_buf,
+        .alt_screen = false,
+        .hide_cursor = false,
+        .mouse_tracking = false,
+    });
+    defer _ = screen.deinit() catch {};
+
+    // Ctrl+C (byte 3) -> interrupt
+    const interrupt = screen.actionToEvent(.execute, 3);
+    try std.testing.expect(interrupt.? == .interrupt);
+
+    // Carriage return -> carriage_return key
+    const cr = screen.actionToEvent(.execute, '\r');
+    try std.testing.expectEqual(Event.Key.carriage_return, cr.?.key);
+
+    // Newline -> carriage_return key
+    const nl = screen.actionToEvent(.execute, '\n');
+    try std.testing.expectEqual(Event.Key.carriage_return, nl.?.key);
+
+    // Tab -> tab key
+    const tab = screen.actionToEvent(.execute, '\t');
+    try std.testing.expectEqual(Event.Key.tab, tab.?.key);
+
+    // Escape -> esc key
+    const esc = screen.actionToEvent(.execute, 0x1B);
+    try std.testing.expectEqual(Event.Key.esc, esc.?.key);
+
+    // Other execute bytes return null
+    try std.testing.expectEqual(@as(?Event, null), screen.actionToEvent(.execute, 0));
+}
+
+test "Screen.actionToEvent - print action" {
+    var backend = TestBackend.init(std.testing.allocator, 80, 24);
+    defer backend.deinit();
+
+    var events_buf: [8]Event = undefined;
+    var textinput_buf: [16]u8 = undefined;
+    var writer_buf: [64]u8 = undefined;
+
+    var screen = try Screen.initTest(&backend, .{
+        .events = &events_buf,
+        .textinput = &textinput_buf,
+        .writer = &writer_buf,
+        .alt_screen = false,
+        .hide_cursor = false,
+        .mouse_tracking = false,
+    });
+    defer _ = screen.deinit() catch {};
+
+    // Print action converts byte to key
+    const key_a = screen.actionToEvent(.print, 'a');
+    try std.testing.expectEqual(Event.Key.a, key_a.?.key);
+
+    const key_z = screen.actionToEvent(.print, 'z');
+    try std.testing.expectEqual(Event.Key.z, key_z.?.key);
+
+    const key_A = screen.actionToEvent(.print, 'A');
+    try std.testing.expectEqual(Event.Key.A, key_A.?.key);
+
+    const key_5 = screen.actionToEvent(.print, '5');
+    try std.testing.expectEqual(Event.Key.@"5", key_5.?.key);
+}
+
+test "Screen.write and writeAll" {
+    var backend = TestBackend.init(std.testing.allocator, 80, 24);
+    defer backend.deinit();
+
+    var events_buf: [8]Event = undefined;
+    var textinput_buf: [16]u8 = undefined;
+    var writer_buf: [64]u8 = undefined;
+
+    var screen = try Screen.initTest(&backend, .{
+        .events = &events_buf,
+        .textinput = &textinput_buf,
+        .writer = &writer_buf,
+        .alt_screen = false,
+        .hide_cursor = false,
+        .mouse_tracking = false,
+    });
+    defer _ = screen.deinit() catch {};
+
+    _ = try screen.write("Hello");
+    try screen.writeAll(", World!");
+    try screen.flush();
+
+    const output = backend.getOutput();
+    try std.testing.expect(std.mem.indexOf(u8, output, "Hello") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "World") != null);
+}
+
+test "Screen.clearScreen outputs erase sequence" {
+    var backend = TestBackend.init(std.testing.allocator, 80, 24);
+    defer backend.deinit();
+
+    var events_buf: [8]Event = undefined;
+    var textinput_buf: [16]u8 = undefined;
+    var writer_buf: [64]u8 = undefined;
+
+    var screen = try Screen.initTest(&backend, .{
+        .events = &events_buf,
+        .textinput = &textinput_buf,
+        .writer = &writer_buf,
+        .alt_screen = false,
+        .hide_cursor = false,
+        .mouse_tracking = false,
+    });
+    defer _ = screen.deinit() catch {};
+
+    try screen.clearScreen();
+    try screen.flush();
+
+    const output = backend.getOutput();
+    // Should contain erase screen sequence
+    try std.testing.expect(std.mem.indexOf(u8, output, ansi.erase_screen) != null);
+}
+
+test "Screen.home outputs cursor home sequence" {
+    var backend = TestBackend.init(std.testing.allocator, 80, 24);
+    defer backend.deinit();
+
+    var events_buf: [8]Event = undefined;
+    var textinput_buf: [16]u8 = undefined;
+    var writer_buf: [64]u8 = undefined;
+
+    var screen = try Screen.initTest(&backend, .{
+        .events = &events_buf,
+        .textinput = &textinput_buf,
+        .writer = &writer_buf,
+        .alt_screen = false,
+        .hide_cursor = false,
+        .mouse_tracking = false,
+    });
+    defer _ = screen.deinit() catch {};
+
+    try screen.home();
+    try screen.flush();
+
+    const output = backend.getOutput();
+    try std.testing.expect(std.mem.indexOf(u8, output, ansi.cursor_home) != null);
+}
+
+test "Screen.querySize returns backend size" {
+    var backend = TestBackend.init(std.testing.allocator, 120, 40);
+    defer backend.deinit();
+
+    var events_buf: [8]Event = undefined;
+    var textinput_buf: [16]u8 = undefined;
+    var writer_buf: [64]u8 = undefined;
+
+    var screen = try Screen.initTest(&backend, .{
+        .events = &events_buf,
+        .textinput = &textinput_buf,
+        .writer = &writer_buf,
+        .alt_screen = false,
+        .hide_cursor = false,
+        .mouse_tracking = false,
+    });
+    defer _ = screen.deinit() catch {};
+
+    const size = screen.querySize();
+    try std.testing.expectEqual(@as(u16, 120), size.width);
+    try std.testing.expectEqual(@as(u16, 40), size.height);
+}
+
+test "Screen.deinit sets running to false" {
+    var backend = TestBackend.init(std.testing.allocator, 80, 24);
+    defer backend.deinit();
+
+    var events_buf: [8]Event = undefined;
+    var textinput_buf: [16]u8 = undefined;
+    var writer_buf: [64]u8 = undefined;
+
+    var screen = try Screen.initTest(&backend, .{
+        .events = &events_buf,
+        .textinput = &textinput_buf,
+        .writer = &writer_buf,
+        .alt_screen = false,
+        .hide_cursor = false,
+        .mouse_tracking = false,
+    });
+
+    try std.testing.expect(screen.running);
+    _ = try screen.deinit();
+    try std.testing.expect(!screen.running);
+}

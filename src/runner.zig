@@ -3,8 +3,6 @@
 //! Simplifies the common pattern of polling events, handling them, and rendering.
 //! All events (keyboard, mouse, resize, etc.) are unified into a single event channel.
 
-
-
 /// Generic event/render loop runner.
 ///
 /// The app type `T` must implement:
@@ -48,6 +46,7 @@ pub fn Runner(comptime T: type) type {
         pub fn runWithOptions(app: *T, proc: std.process.Init, screen_options: Screen.Options, options: Options) !void {
             const io = proc.io;
             var screen = try Screen.init(io, screen_options);
+            // Cleanup errors are ignored - terminal state restoration is best-effort
             defer _ = screen.deinit() catch {};
 
             // Store screen pointer for signal handler
@@ -72,7 +71,7 @@ pub fn Runner(comptime T: type) type {
             }
 
             defer {
-                // Call app.cleanup if it exists
+                // Call app.cleanup if it exists (errors ignored - best-effort cleanup)
                 if (@hasDecl(T, "cleanup")) {
                     app.cleanup(&screen) catch {};
                 }
@@ -111,7 +110,10 @@ pub fn Runner(comptime T: type) type {
                 }
 
                 if (!screen.running) break;
-                if (resize) |r| buffer.resize(r.width, r.height) catch {};
+                // Resize may fail on allocation - continue with old buffer size
+                if (resize) |r| buffer.resize(r.width, r.height) catch {
+                    std.log.debug("buffer resize failed, continuing with old size", .{});
+                };
 
                 // Clear and render frame
                 var f = frame.Frame.init(&buffer);
@@ -120,7 +122,7 @@ pub fn Runner(comptime T: type) type {
                 try f.render(&screen);
                 try screen.flush();
 
-                // Frame timing
+                // Frame timing (sleep failure is non-fatal)
                 io.sleep(frame_duration, .awake) catch {};
             }
         }

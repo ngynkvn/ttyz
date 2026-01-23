@@ -143,7 +143,6 @@ pub const Screen = struct {
 
     /// Write cleanup escape sequences based on options.
     fn writeExitSequences(self: *Screen) !void {
-        // TODO:
         if (self.options.hide_cursor) try self.writeRawFrom(ansi.cursor.show);
         if (self.options.alt_screen) try self.writeRawFrom(ansi.screen_mode.disableAltBuffer);
         if (self.options.mouse_tracking) _ = try self.writeRawDirect(ansi.mouse_tracking_disable);
@@ -249,8 +248,13 @@ pub const Screen = struct {
     }
 
     /// Push an event to the queue.
+    /// If the queue is full, the event is dropped silently. This prevents
+    /// blocking on slow event consumers. Increase `Options.events` buffer
+    /// size if events are being dropped.
     pub fn pushEvent(self: *Screen, event: Event) void {
-        self.event_queue.pushBackBounded(event) catch {};
+        self.event_queue.pushBackBounded(event) catch {
+            std.log.debug("event queue full, dropping event", .{});
+        };
     }
 
     /// Read input from TTY and queue events.

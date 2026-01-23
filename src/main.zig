@@ -10,19 +10,20 @@ pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(gpa.allocator());
     defer arena.deinit();
     const allocator = arena.allocator();
-    // const tty = std.fs.File.stdout();
+
     const tty = try std.fs.openFileAbsolute("/dev/tty", .{ .mode = .read_write });
-    // const ws = try ttyz.queryHandleSize(tty.handle);
     var w = tty.writer(&.{});
 
+    const cwd = try std.process.getCwdAlloc(allocator);
+    defer allocator.free(cwd);
+
+    const path = try std.fs.path.join(allocator, &.{ cwd, "testdata/mushroom.png" });
+    defer allocator.free(path);
     var image = ttyz.kitty.Image.default;
     image.params.a = 'T';
     image.params.t = 'f';
     image.params.f = 100;
-    image.filePath("testdata/mushroom.png");
-    var w = tty.writer(&.{});
-    image.filePath("/Users/ngynkvn/dev/zig/ttyz/testdata/mushroom.png");
-    var w = tty.writer(&.{});
+    image.filePath(path);
     try image.write(&w.interface);
 
     var canvas = try ttyz.draw.Canvas.initAlloc(allocator, 200, 200);
@@ -73,18 +74,18 @@ pub fn main() !void {
         const renderCommands = try L.end();
         defer allocator.free(renderCommands);
 
-        for (1.., renderCommands) |i, command| {
+        for (renderCommands) |command| {
             const ui = command.node.ui;
             switch (command.node.tag) {
                 .text => {
                     try s.print(E.GOTO ++ "{s}\n", .{ ui.y, ui.x, command.data });
                 },
                 .box => {
-                    try termdraw.TermDraw.box(
+                    try termdraw.box(
                         &s.writer.interface,
                         .{ .x = ui.x, .y = ui.y, .width = ui.width, .height = ui.height },
                     );
-                    try c.print(E.GOTO ++ "({},{})({},{})", .{ i * 1, i * 1, ui.y, ui.x, ui.width, ui.height });
+                    try c.print(E.GOTO ++ "({},{})({},{})", .{ ui.y, ui.x, ui.y, ui.x, ui.width, ui.height });
                 },
             }
         }
@@ -113,3 +114,38 @@ pub fn main() !void {
 }
 
 pub const panic = ttyz.panic;
+
+pub const std_options: std.Options = .{
+    .log_level = .debug,
+    .logFn = logHandlerFn,
+};
+
+var logHandle: ?std.fs.File = null;
+fn initLogHandle() !void {}
+
+fn deinitLogHandle() !void {
+    _ = logHandle.?.close();
+}
+/// copy of std.log.defaultLog
+fn logHandlerFn(
+    comptime level: std.log.Level,
+    comptime scope: @Type(.enum_literal),
+    comptime format: []const u8,
+    args: anytype,
+) void {
+    const level_txt = comptime asText(level);
+    const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
+    var buffer: [64]u8 = undefined;
+    const stderr = std.debug.lockStderrWriter(&buffer);
+    defer std.debug.unlockStderrWriter();
+    nosuspend stderr.print(level_txt ++ prefix2 ++ format ++ "\n", args) catch return;
+}
+
+fn asText(comptime self: std.log.Level) []const u8 {
+    return switch (self) {
+        .err => "\x1b[31mERR\x1b[0m",
+        .warn => "\x1b[33mWARN\x1b[0m",
+        .info => "\x1b[32mINFO\x1b[0m",
+        .debug => "\x1b[36mDEBUG\x1b[0m",
+    };
+}

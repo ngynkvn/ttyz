@@ -9,35 +9,22 @@ pub fn build(b: *std.Build) void {
         .target = target,
     });
 
-    // Main example executable
-    const ttyz_exe = b.addExecutable(.{
-        .name = "ttyz",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/main.zig"),
-            .target = target,
-            .optimize = optimize,
-            .imports = &.{
-                .{ .name = "ttyz", .module = ttyz_mod },
-            },
-        }),
-    });
-
-    b.installArtifact(ttyz_exe);
-
     // Example executables
-    const examples = [_]struct { name: []const u8, desc: []const u8 }{
-        .{ .name = "demo", .desc = "Run the interactive demo" },
-        .{ .name = "hello", .desc = "Run the hello world example" },
-        .{ .name = "input", .desc = "Run the input handling example" },
-        .{ .name = "progress", .desc = "Run the progress bar example" },
-        .{ .name = "colors", .desc = "Run the color showcase example" },
+    const exes = [_]struct { name: []const u8, desc: []const u8, path: []const u8 }{
+        .{ .name = "main", .desc = "Run the main application", .path = "src" },
+        .{ .name = "demo", .desc = "Run the interactive demo", .path = "examples" },
+        .{ .name = "hello", .desc = "Run the hello world example", .path = "examples" },
+        .{ .name = "input", .desc = "Run the input handling example", .path = "examples" },
+        .{ .name = "progress", .desc = "Run the progress bar example", .path = "examples" },
+        .{ .name = "colors", .desc = "Run the color showcase example", .path = "examples" },
     };
 
-    for (examples) |example| {
+    const test_step = b.step("test", "Run tests");
+    for (exes) |e| {
         const exe = b.addExecutable(.{
-            .name = example.name,
+            .name = e.name,
             .root_module = b.createModule(.{
-                .root_source_file = b.path(b.fmt("examples/{s}.zig", .{example.name})),
+                .root_source_file = b.path(b.fmt("{s}/{s}.zig", .{ e.path, e.name })),
                 .target = target,
                 .optimize = optimize,
                 .imports = &.{
@@ -46,43 +33,29 @@ pub fn build(b: *std.Build) void {
             }),
         });
         b.installArtifact(exe);
-
         const run_cmd = b.addRunArtifact(exe);
         run_cmd.step.dependOn(b.getInstallStep());
-        const step = b.step(example.name, example.desc);
+        const step = b.step(e.name, e.desc);
         step.dependOn(&run_cmd.step);
-    }
-
-    // Run main app
-    const run_step = b.step("run", "Run the app");
-    const run_cmd = b.addRunArtifact(ttyz_exe);
-    run_step.dependOn(&run_cmd.step);
-    run_cmd.step.dependOn(b.getInstallStep());
-
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
+        if (b.args) |args| {
+            run_cmd.addArgs(args);
+        }
+        const tests = b.addTest(.{
+            .root_module = exe.root_module,
+        });
+        const run_tests = b.addRunArtifact(tests);
+        test_step.dependOn(&run_tests.step);
     }
 
     // Tests
     const mod_tests = b.addTest(.{
         .root_module = ttyz_mod,
     });
-
     const run_mod_tests = b.addRunArtifact(mod_tests);
-
-    const exe_tests = b.addTest(.{
-        .root_module = ttyz_exe.root_module,
-    });
-
-    const run_exe_tests = b.addRunArtifact(exe_tests);
-
-    const test_step = b.step("test", "Run tests");
     test_step.dependOn(&run_mod_tests.step);
-    test_step.dependOn(&run_exe_tests.step);
 
     const check_step = b.step("check", "Check the app");
     check_step.dependOn(test_step);
-    check_step.dependOn(&ttyz_exe.step);
 
     // Documentation
     const docs_obj = b.addObject(.{

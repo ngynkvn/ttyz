@@ -28,7 +28,6 @@
 
 const std = @import("std");
 const ttyz = @import("ttyz.zig");
-const termdraw = @import("termdraw.zig");
 
 /// Sizing mode for width or height.
 pub const Size = union(enum) {
@@ -136,39 +135,54 @@ pub const RenderCommand = struct {
 
     /// Render this command to the screen.
     pub fn render(self: RenderCommand, screen: *ttyz.Screen) !void {
-        const w = &screen.writer.interface;
         switch (self.tag) {
             .box => {
                 if (self.border and self.width >= 2 and self.height >= 2) {
-                    try termdraw.box(w, .{
-                        .x = self.x,
-                        .y = self.y,
-                        .width = self.width,
-                        .height = self.height,
-                        .color = self.color,
-                    });
+                    // Draw border using box-drawing characters
+                    if (self.color) |color| {
+                        try screen.print(ttyz.E.SET_TRUCOLOR, .{ color[0], color[1], color[2] });
+                    }
+                    // Top edge
+                    try screen.print(ttyz.E.GOTO ++ "┏", .{ self.y, self.x });
+                    for (0..self.width -| 2) |_| {
+                        try screen.print("━", .{});
+                    }
+                    try screen.print("┓", .{});
+                    // Middle rows
+                    for (1..self.height -| 1) |row| {
+                        try screen.print(ttyz.E.GOTO ++ "┃" ++ ttyz.E.GOTO ++ "┃", .{
+                            self.y + @as(u16, @intCast(row)),
+                            self.x,
+                            self.y + @as(u16, @intCast(row)),
+                            self.x + self.width -| 1,
+                        });
+                    }
+                    // Bottom edge
+                    try screen.print(ttyz.E.GOTO ++ "┗", .{ self.y + self.height -| 1, self.x });
+                    for (0..self.width -| 2) |_| {
+                        try screen.print("━", .{});
+                    }
+                    try screen.print("┛" ++ ttyz.E.RESET_COLORS, .{});
                 } else if (self.color) |color| {
                     // Fill with background color if no border
-                    var buf: [32]u8 = undefined;
-                    const color_str = std.fmt.bufPrint(&buf, ttyz.E.SET_TRUCOLOR, .{ color[0], color[1], color[2] }) catch return;
                     for (0..self.height) |row| {
-                        var goto_buf: [16]u8 = undefined;
-                        const goto = std.fmt.bufPrint(&goto_buf, ttyz.E.GOTO, .{ self.y + @as(u16, @intCast(row)), self.x }) catch return;
-                        _ = try w.write(goto);
-                        _ = try w.write(color_str);
+                        try screen.print(ttyz.E.GOTO ++ ttyz.E.SET_TRUCOLOR, .{
+                            self.y + @as(u16, @intCast(row)),
+                            self.x,
+                            color[0],
+                            color[1],
+                            color[2],
+                        });
                         for (0..self.width) |_| {
-                            _ = try w.write(" ");
+                            try screen.print(" ", .{});
                         }
                     }
-                    _ = try w.write(ttyz.E.RESET_COLORS);
+                    try screen.print(ttyz.E.RESET_COLORS, .{});
                 }
             },
             .text => {
                 if (self.text) |txt| {
-                    var buf: [16]u8 = undefined;
-                    const goto = std.fmt.bufPrint(&buf, ttyz.E.GOTO, .{ self.y, self.x }) catch return;
-                    _ = try w.write(goto);
-                    _ = try w.write(txt);
+                    try screen.print(ttyz.E.GOTO ++ "{s}", .{ self.y, self.x, txt });
                 }
             },
         }

@@ -11,7 +11,7 @@ var arena = std.heap.ArenaAllocator.init(gpa.allocator());
 const allocator = arena.allocator();
 
 const Root = struct {
-    pub const props = layout.NodeProps{ .id = 1, .layout_direction = .left_to_right, .sizing = .As(.fit, .fit), .padding = .From(1, 3, 1, 3) };
+    pub const props = layout.NodeProps{ .id = 1, .layout_direction = .left_right, .sizing = .As(.fit, .fit), .padding = .From(1, 3, 1, 3) };
     pub fn render(ctx: *layout.Context) void {
         Element.from(Section).render(ctx);
         Element.from(Section2).render(ctx);
@@ -41,7 +41,7 @@ pub fn main() !void {
     defer allocator.free(cwd);
 
     if (args.debug) {
-        try openLogFile();
+        try enableLogging();
     }
 
     const tty = try std.fs.openFileAbsolute("/dev/tty", .{ .mode = .read_write });
@@ -78,7 +78,6 @@ pub fn main() !void {
             const ui = command.node.ui;
             switch (command.node.tag) {
                 .text => {
-                    std.log.info("Rendering text: {s}", .{command.node.text.?});
                     try s.print(E.GOTO ++ "{s}\n", .{ ui.y, ui.x, command.node.text.? });
                 },
                 .box => {
@@ -92,6 +91,7 @@ pub fn main() !void {
         }
 
         while (s.pollEvent()) |event| {
+            std.log.info("event: {}", .{event});
             switch (event) {
                 .key => |key| {
                     last_event = event;
@@ -101,22 +101,17 @@ pub fn main() !void {
                     }
                 },
                 .cursor_pos => |cursor_pos| {
-                    try s.print("{}\n", .{cursor_pos});
+                    _ = cursor_pos;
+                    // try s.print("{}\n", .{cursor_pos});
+                },
+                .mouse => |mouse| {
+                    _ = mouse;
+                    // try s.print("{}\n", .{mouse});
                 },
                 .interrupt => {
                     s.running = false;
                 },
             }
-        }
-        const log_height = 20;
-        try s.goto(s.height - log_height, 0);
-        try s.print("Log\n\r", .{});
-        const buf = logWriter.written();
-        var log_lines = std.mem.splitBackwardsScalar(u8, buf, '\n');
-        _ = logWriter.writer.consumeAll();
-        for (0..log_height) |i| {
-            const line = log_lines.next() orelse break;
-            try s.print(E.GOTO ++ "{s}", .{ s.height - i, 0, line });
         }
         try s.flush();
         std.Thread.sleep(std.time.ns_per_s / 16);
@@ -134,7 +129,7 @@ pub const std_options: std.Options = .{
 const Args = struct {
     debug: bool,
     log_path: []const u8,
-    pub const default = Args{ .debug = false, .log_path = "/tmp/log.txt" };
+    pub const default = Args{ .debug = false, .log_path = "/tmp/ttyz.log" };
 };
 
 fn parseArgs() !Args {
@@ -154,8 +149,8 @@ fn parseArgs() !Args {
 /// Closes the log file and calls the library panic handler
 pub const panic = std.debug.FullPanic(panicCloseLogHandle);
 pub fn panicCloseLogHandle(msg: []const u8, ra: ?usize) noreturn {
-    closeLogFile();
     ttyz.panicTty(msg, ra);
+    disableLogging();
 }
 
 /// Converts a log level to a text string
@@ -169,7 +164,7 @@ fn asText(comptime self: std.log.Level) []const u8 {
 }
 
 var debug = false;
-var logWriter = std.Io.Writer.Allocating.init(allocator);
+
 /// copy of std.log.defaultLog
 fn logHandlerFn(
     comptime level: std.log.Level,
@@ -180,17 +175,16 @@ fn logHandlerFn(
     if (!debug) return;
     const level_txt = comptime asText(level);
     const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
-    nosuspend logWriter.writer.print(level_txt ++ prefix2 ++ format ++ "\n", args) catch {};
+    var buffer: [64]u8 = undefined;
+    const stderr = std.debug.lockStderrWriter(&buffer);
+    defer std.debug.unlockStderrWriter();
+    nosuspend stderr.print(level_txt ++ prefix2 ++ format ++ "\n", args) catch return;
 }
 
-fn openLogFile() !void {
+fn enableLogging() !void {
     debug = true;
-    std.log.info("Initialized log file", .{});
-    // logHandle = try std.fs.openFileAbsolute(path, .{ .mode = .read_write });
 }
 
-fn closeLogFile() void {
+fn disableLogging() void {
     debug = false;
-    std.log.info("Deinitializing log file", .{});
-    // if (logHandle) |handle| handle.close();
 }

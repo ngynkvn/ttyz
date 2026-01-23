@@ -5,7 +5,7 @@
 const std = @import("std");
 const ttyz = @import("ttyz");
 
-pub fn main() !void {
+pub fn main(_: std.process.Init) !void {
     // Initialize raw mode terminal
     var screen = try ttyz.Screen.init();
     defer _ = screen.deinit() catch {};

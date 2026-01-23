@@ -6,7 +6,7 @@ const std = @import("std");
 const ttyz = @import("ttyz");
 const E = ttyz.E;
 
-pub fn main() !void {
+pub fn main(_: std.process.Init) !void {
     var screen = try ttyz.Screen.init();
     defer _ = screen.deinit() catch {};
 

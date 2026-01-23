@@ -5,19 +5,7 @@ const termdraw = ttyz.termdraw;
 const E = ttyz.E;
 const layout = ttyz.layout;
 
-/// Sleep for the given number of nanoseconds
-fn nanosleep(ns: u64) void {
-    const ts = std.c.timespec{
-        .sec = @intCast(ns / std.time.ns_per_s),
-        .nsec = @intCast(ns % std.time.ns_per_s),
-    };
-    _ = std.c.nanosleep(&ts, null);
-}
 const Element = layout.Element;
-
-var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
-var arena = std.heap.ArenaAllocator.init(gpa.allocator());
-const allocator = arena.allocator();
 
 const Root = struct {
     pub var props = layout.NodeProps{ .id = 1, .layout_direction = .left_right, .sizing = .As(.fit, .fit), .padding = .From(0, 0, 0, 0) };
@@ -45,14 +33,22 @@ const Root = struct {
     };
 };
 
-pub fn main() !void {
-    defer _ = gpa.deinit();
-    defer arena.deinit();
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.arena.allocator();
 
-    // TODO: comptime generate a parser for args
-    const args = parseArgs();
-
-    if (args.debug) {
+    // Check for debug flag in args or environment
+    var enable_debug = false;
+    const args = init.minimal.args.toSlice(allocator) catch &.{};
+    for (args) |arg| {
+        if (std.mem.eql(u8, arg, "--debug")) {
+            enable_debug = true;
+            break;
+        }
+    }
+    if (init.environ_map.get("TTYZ_DEBUG") != null) {
+        enable_debug = true;
+    }
+    if (enable_debug) {
         enableLogging();
     }
 
@@ -63,6 +59,7 @@ pub fn main() !void {
     try s.start();
 
     var last_event: ?ttyz.Event = null;
+    _ = &last_event;
     var L = layout.Context.init(allocator, &s);
     defer L.deinit();
 
@@ -147,7 +144,7 @@ pub fn main() !void {
             }
         }
         try s.flush();
-        nanosleep(std.time.ns_per_s / 16);
+        init.io.sleep(std.Io.Duration.fromMilliseconds(10), .awake) catch {};
     }
 }
 
@@ -155,24 +152,6 @@ pub const std_options: std.Options = .{
     .log_level = .debug,
     .logFn = logHandlerFn,
 };
-
-/// Arguments
-/// debug: bool,
-/// log_path: []const u8,
-const Args = struct {
-    debug: bool,
-    log_path: []const u8,
-    pub const default = Args{ .debug = false, .log_path = "/tmp/ttyz.log" };
-};
-
-fn parseArgs() Args {
-    // Simplified arg parsing for now - check env var instead
-    var parsed_args: Args = .default;
-    if (std.c.getenv("TTYZ_DEBUG")) |_| {
-        parsed_args.debug = true;
-    }
-    return parsed_args;
-}
 
 /// Panic handler
 /// Closes the log file and calls the library panic handler

@@ -4,17 +4,6 @@ const E = ttyz.E;
 const termdraw = ttyz.termdraw;
 const text = ttyz.text;
 
-/// Sleep for the given number of nanoseconds
-fn nanosleep(ns: u64) void {
-    const ts = std.c.timespec{
-        .sec = @intCast(ns / std.time.ns_per_s),
-        .nsec = @intCast(ns % std.time.ns_per_s),
-    };
-    _ = std.c.nanosleep(&ts, null);
-}
-
-var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
-
 const Demo = struct {
     screen: *ttyz.Screen,
     current_tab: Tab = .overview,
@@ -374,9 +363,7 @@ const Demo = struct {
     }
 };
 
-pub fn main() !void {
-    defer _ = gpa.deinit();
-
+pub fn main(init: std.process.Init) !void {
     var s = try ttyz.Screen.init();
     defer _ = s.deinit() catch {};
 
@@ -418,7 +405,7 @@ pub fn main() !void {
         try s.flush();
 
         // ~30 FPS
-        nanosleep(std.time.ns_per_s / 30);
+        init.io.sleep(std.Io.Duration.fromMilliseconds(33), .awake) catch {};
     }
 }
 

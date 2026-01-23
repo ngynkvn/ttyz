@@ -52,17 +52,30 @@ pub fn displayRgb(writer: *std.Io.Writer, pixels: []const u8, width: usize, heig
 }
 
 /// Display a PNG file at the current cursor position.
-/// The path must be accessible by the terminal (use absolute paths).
+/// Reads the file and transmits contents directly (works in all terminals).
 pub fn displayFile(io: std.Io, writer: *std.Io.Writer, path: []const u8) !void {
-    try (if (std.fs.path.isAbsolute(path))
-        std.Io.Dir.accessAbsolute(io, path, .{})
+    const file = if (std.fs.path.isAbsolute(path))
+        try std.Io.Dir.openFileAbsolute(io, path, .{})
     else
-        std.Io.Dir.cwd().access(io, path, .{}));
+        try std.Io.Dir.cwd().openFile(io, path, .{});
+    defer file.close(io);
+
     var image = Image.init();
     image.setAction(.transmit_and_display);
     image.setFormat(.png);
-    image.setTransmission(.file);
-    try image.transmitPath(writer, path);
+    // Direct transmission (default) - send file contents, not path
+    try image.transmitFile(io, writer, file);
+}
+
+/// Display a PNG file using an allocator for buffering.
+pub fn displayFileAlloc(allocator: std.mem.Allocator, writer: *std.Io.Writer, path: []const u8) !void {
+    const file_contents = try std.fs.cwd().readFileAlloc(allocator, path, 10 * 1024 * 1024);
+    defer allocator.free(file_contents);
+
+    var image = Image.init();
+    image.setAction(.transmit_and_display);
+    image.setFormat(.png);
+    try image.transmit(writer, file_contents);
 }
 
 /// Delete all images from the terminal.
@@ -208,10 +221,53 @@ pub const Image = struct {
         }
     }
 
-    /// Transmit a file path.
+    /// Transmit a file path (for t=f mode where terminal reads the file).
     pub fn transmitPath(self: *Image, writer: *std.Io.Writer, path: []const u8) !void {
         self.params.m = 0;
         try self.writeCommandWithPayload(writer, path);
+    }
+
+    /// Transmit file contents by reading from a file handle.
+    /// Uses double buffering to determine when we've reached EOF.
+    pub fn transmitFile(self: *Image, io: std.Io, writer: *std.Io.Writer, file: std.Io.File) !void {
+        var buf_a: [MAX_CHUNK_SIZE]u8 = undefined;
+        var buf_b: [MAX_CHUNK_SIZE]u8 = undefined;
+        var current: []u8 = &buf_a;
+        var next: []u8 = &buf_b;
+
+        // Read first chunk
+        var current_len = try file.readStreaming(io, &.{current});
+        if (current_len == 0) {
+            // Empty file
+            self.params.m = 0;
+            try self.writeCommandWithPayload(writer, &.{});
+            return;
+        }
+
+        var first = true;
+        while (current_len > 0) {
+            // Read ahead to determine if this is the last chunk
+            const next_len = try file.readStreaming(io, &.{next});
+            const is_last = next_len == 0;
+
+            self.params.m = if (is_last) 0 else 1;
+
+            if (first) {
+                try self.writeCommandWithPayload(writer, current[0..current_len]);
+                first = false;
+                // Clear params that shouldn't repeat
+                self.params.a = null;
+                self.params.f = null;
+            } else {
+                try self.writeContinuation(writer, current[0..current_len], is_last);
+            }
+
+            // Swap buffers
+            const tmp = current;
+            current = next;
+            next = tmp;
+            current_len = next_len;
+        }
     }
 
     // -------------------------------------------------------------------------

@@ -123,10 +123,11 @@ fn createCheckerboard(allocator: std.mem.Allocator) !draw.Canvas {
     const size: usize = 100;
     var canvas = try draw.Canvas.initAlloc(allocator, size, size);
     const cell_size: usize = 10;
+    _ = cell_size; // autofix
     for (0..size) |y| {
+        const cy = y;
         for (0..size) |x| {
-            const cx = x / cell_size;
-            const cy = y / cell_size;
+            const cx = x;
             const is_dark = (cx + cy) % 2 == 0;
             if (is_dark) {
                 canvas.setPixel(x, y, 50, 50, 80, 255);

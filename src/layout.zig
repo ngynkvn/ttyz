@@ -4,8 +4,8 @@ const _cast = ttyz._cast;
 
 const RenderCommand = struct {
     node: Node,
-    data: []const u8,
 };
+
 pub const Context = struct {
     allocator: std.mem.Allocator,
     screen: *ttyz.Screen,
@@ -20,28 +20,31 @@ pub const Context = struct {
 
     pub fn end(self: *Context) ![]const RenderCommand {
         var renderCommands = std.ArrayList(RenderCommand).empty;
-        var roots = self.nodeIterator();
-        // todo: inefficient, fix this
-        while (roots.nextWhereParent(null)) |r| {
-            const root, const ri = r;
-            try renderCommands.append(self.allocator, .{ .node = root, .data = "" });
-            var left_offset = root.layout.padding.left;
-            var top_offset = root.layout.padding.top;
-            var children = self.nodeIterator();
-            while (children.nextWhereParent(ri)) |c| {
-                var child, _ = c;
-                child.ui.x += root.ui.x + left_offset;
-                child.ui.y += root.ui.y + top_offset;
-                const rc: RenderCommand = switch (child.tag) {
-                    .box => .{ .node = child, .data = "" },
-                    .text => .{ .node = child, .data = child.text.? },
-                };
-                if (root.layout.layoutDirection == .left_to_right) {
-                    left_offset += child.layout.padding.left + child.ui.width;
-                } else {
-                    top_offset += child.layout.padding.top + child.ui.height;
-                }
+        var idx_stack = std.ArrayList(?Node.Index).empty;
+        try idx_stack.append(self.allocator, null);
+        while (idx_stack.pop()) |i| {
+            var roots = self.nodeIterator();
+            while (roots.nextWhereParent(i)) |r| {
+                const root, const ri = r;
+                var left_offset = root.layout.padding.left;
+                var top_offset = root.layout.padding.top;
+                var children = self.nodeIterator();
+                const rc: RenderCommand = .{ .node = root };
                 try renderCommands.append(self.allocator, rc);
+
+                // Adjust children's position based on the root's position and padding
+                while (children.nextWhereParent(ri)) |c| {
+                    var child, const ci = c;
+                    child.ui.x += root.ui.x + left_offset;
+                    child.ui.y += root.ui.y + top_offset;
+                    if (root.layout.layout_direction == .left_to_right) {
+                        left_offset += child.layout.padding.left + child.ui.width;
+                    } else {
+                        top_offset += child.layout.padding.top + child.ui.height;
+                    }
+                    self.nodes.set(ci, child);
+                }
+                try idx_stack.append(self.allocator, ri);
             }
         }
         return renderCommands.toOwnedSlice(self.allocator);
@@ -72,8 +75,8 @@ pub const Context = struct {
     };
 
     pub fn OpenElement(self: *Context, np: NodeProps) void {
-        var node: Node = undefined;
         const current_node = self.current_node;
+        var node: Node = undefined;
         node = .{
             .id = np.id,
             .tag = np.tag,
@@ -81,11 +84,11 @@ pub const Context = struct {
             .layout = .{
                 .sizing = np.sizing,
                 .padding = np.padding,
-                .childGap = np.childGap,
-                .childAlignment = np.childAlignment,
-                .layoutDirection = np.layoutDirection,
+                .child_gap = np.child_gap,
+                .child_alignment = np.child_alignment,
+                .layout_direction = np.layout_direction,
             },
-            .style = .{ .backgroundColor = np.backgroundColor },
+            .style = .{ .background_color = np.background_color },
             .ui = UIElement.init(node),
             .parent = current_node,
         };
@@ -105,21 +108,21 @@ pub const Context = struct {
         const parent_idx = cn.parent orelse return;
 
         var pn = self.nodes.get(parent_idx);
-        const childrenCount = self.countChildren(parent_idx);
-        const childGap: u16 = pn.layout.childGap * @as(u16, @intCast(childrenCount - 1));
+        const children_count = self.countChildren(parent_idx);
+        const child_gap: u16 = pn.layout.child_gap * @as(u16, @intCast(children_count - 1));
 
-        switch (pn.layout.layoutDirection) {
+        switch (pn.layout.layout_direction) {
             .left_to_right => { // width axis
+                cn.ui.width += child_gap;
                 if (pn.layout.sizing.width == .fixed) return;
-                cn.ui.width += childGap;
                 pn.ui.width += cn.ui.width;
-                pn.ui.height = @max(pn.ui.height, cn.ui.height);
+                pn.ui.height = @max(pn.ui.height, cn.ui.y + cn.ui.height);
             },
             .top_to_bottom => { // height axis
+                cn.ui.height += child_gap;
                 if (pn.layout.sizing.height == .fixed) return;
-                cn.ui.height += childGap;
                 pn.ui.height += cn.ui.height;
-                pn.ui.width = @max(pn.ui.width, cn.ui.width);
+                pn.ui.width = @max(pn.ui.width, cn.ui.x + cn.ui.width);
             },
         }
         self.nodes.set(parent_idx, pn);
@@ -144,17 +147,32 @@ pub const Context = struct {
             .nodes = std.MultiArrayList(Node).empty,
         };
     }
+
+    pub fn render(self: *Context, root: type) ![]const RenderCommand {
+        _ = self.begin();
+        Element.from(root).render(self);
+        return self.end();
+    }
 };
 
 pub const NodeProps = struct {
+    /// Controls the id of this element.
     id: ?u8 = null,
+    /// Controls the tag of this element.
     tag: Node.Tag = .box,
-    sizing: Sizing = .As(.fit, .fit), // Controls the sizing of this element inside it's parent container, including FIT, GROW, PERCENT and FIXED sizing.
-    padding: Padding = .{}, // Controls "padding" in pixels, which is a gap between the bounding box of this element and where its children will be placed.
-    childGap: u16 = 0, // Controls the gap in pixels between child elements along the layout axis (horizontal gap for LEFT_TO_RIGHT, vertical gap for TOP_TO_BOTTOM).
-    childAlignment: ChildAlignment = .{ .x = .left, .y = .start }, // Controls how child elements are aligned on each axis.
-    layoutDirection: LayoutDirection = .top_to_bottom, // Controls the direction in which child elements will be automatically laid out.
-    backgroundColor: ?[4]u8 = null,
+    /// Controls the sizing of this element inside it's parent container, including FIT, GROW, PERCENT and FIXED sizing.
+    sizing: Sizing = .As(.fit, .fit),
+    /// Controls "padding" in pixels, which is a gap between the bounding box of this element and where its children will be placed.
+    padding: Padding = .{},
+    /// Controls the gap in pixels between child elements along the layout axis (horizontal gap for LEFT_TO_RIGHT, vertical gap for TOP_TO_BOTTOM).
+    child_gap: u16 = 0,
+    /// Controls how child elements are aligned on each axis.
+    child_alignment: ChildAlignment = .{ .x = .left, .y = .start },
+    /// Controls the direction in which child elements will be automatically laid out.
+    layout_direction: LayoutDirection = .top_to_bottom,
+    /// Controls the background color of this element.
+    background_color: ?[4]u8 = null,
+    /// Controls the text of this element.
     text: ?[]const u8 = null,
 };
 
@@ -181,12 +199,7 @@ pub const UIElement = struct {
     height: u16,
 
     pub fn init(node: Node) UIElement {
-        var ui = UIElement{
-            .x = 1,
-            .y = 1,
-            .width = 2,
-            .height = 2,
-        };
+        var ui = UIElement{ .x = 1, .y = 1, .width = 0, .height = 0 };
         const layout = node.layout;
         switch (layout.sizing.height) {
             .fixed => ui.height = _cast(u16, layout.sizing.height.fixed),
@@ -201,16 +214,21 @@ pub const UIElement = struct {
 };
 
 const LayoutConfig = struct {
-    sizing: Sizing = .As(.fit, .fit), // Controls the sizing of this element inside it's parent container, including FIT, GROW, PERCENT and FIXED sizing.
+    /// Controls the sizing of this element inside it's parent container, including FIT, GROW, PERCENT and FIXED sizing.
+    sizing: Sizing = .As(.fit, .fit),
+    /// Controls "padding" in pixels, which is a gap between the bounding box of this element and where its children will be placed.
     padding: Padding = .{}, // Controls "padding" in pixels, which is a gap between the bounding box of this element and where its children will be placed.
-    childGap: u16 = 0, // Controls the gap in pixels between child elements along the layout axis (horizontal gap for LEFT_TO_RIGHT, vertical gap for TOP_TO_BOTTOM).
-    childAlignment: ChildAlignment = .{ .x = .left, .y = .start }, // Controls how child elements are aligned on each axis.
-    layoutDirection: LayoutDirection = .top_to_bottom, // Controls the direction in which child elements will be automatically laid out.
-
+    /// Controls the gap in pixels between child elements along the layout axis (horizontal gap for LEFT_TO_RIGHT, vertical gap for TOP_TO_BOTTOM).
+    child_gap: u16 = 0,
+    /// Controls how child elements are aligned on each axis.
+    child_alignment: ChildAlignment = .{ .x = .left, .y = .start },
+    /// Controls the direction in which child elements will be automatically laid out.
+    layout_direction: LayoutDirection = .top_to_bottom,
 };
 
 const Style = struct {
-    backgroundColor: ?[4]u8 = null,
+    /// Controls the background color of this element.
+    background_color: ?[4]u8 = null,
 };
 
 const Sizing = struct {
@@ -223,19 +241,26 @@ const Sizing = struct {
 };
 
 const SizingVariant = union(enum) {
+    /// Size of this element as a percentage of its parent's size.
     percent: f32,
-    minMax: struct { min: f32, max: f32 },
+    /// Size of this element as a minimum and maximum percentage of its parent's size.
+    min_max: struct { min: f32, max: f32 },
+    /// Size of this element as a fixed number of pixels.
     fixed: u32,
+    /// Size of this element as a fit to its parent's size.
     fit: void,
 
     pub fn Percent(value: f32) SizingVariant {
         return .{ .percent = value };
     }
     pub fn MinMax(min: f32, max: f32) SizingVariant {
-        return .{ .minMax = .{ .min = min, .max = max } };
+        return .{ .min_max = .{ .min = min, .max = max } };
     }
     pub fn Fixed(value: u32) SizingVariant {
         return .{ .fixed = value };
+    }
+    pub fn Fit() SizingVariant {
+        return .{.fit};
     }
 };
 
@@ -262,3 +287,39 @@ const ChildAlignment = struct {
 const LayoutDirection = enum { left_to_right, top_to_bottom };
 
 const panic = std.debug.panic;
+
+pub const Element = struct {
+    props: NodeProps,
+    renderFn: fn (ctx: *Context) void,
+    pub fn render(self: *const Element, ctx: *Context) void {
+        ctx.OpenElement(self.props);
+        self.renderFn(ctx);
+        ctx.CloseElement();
+    }
+    pub fn from(root: anytype) Element {
+        switch (@TypeOf(root)) {
+            type => return fromType(root),
+            struct { NodeProps, (fn (ctx: *Context) void) } => return fromTuple(root),
+            fn (ctx: *Context) void => return fromTuple(.{ .{}, root }),
+            else => @compileError("root must be a type"),
+        }
+    }
+
+    pub fn fromType(comptime root: type) Element {
+        if (!@hasDecl(root, "props"))
+            @compileError("root must have a props field");
+        if (!@hasDecl(root, "render"))
+            @compileError("root must have a render field");
+        return .{
+            .props = root.props,
+            .renderFn = root.render,
+        };
+    }
+
+    pub fn fromTuple(comptime root: struct { NodeProps, (fn (ctx: *Context) void) }) Element {
+        return .{
+            .props = root.@"0",
+            .renderFn = root.@"1",
+        };
+    }
+};

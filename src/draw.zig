@@ -8,11 +8,7 @@ pub const Canvas = struct {
     canvas: []u8,
 
     pub fn writeKitty(canvas: *Canvas, writer: *std.Io.Writer) !void {
-        var image = kitty.Image.with(.{
-            .a = 'T',
-            .f = 32,
-            .t = 'd',
-        }, canvas.canvas);
+        var image = kitty.Image.with(.{ .a = 'T', .f = 32, .t = 'd' }, canvas.canvas);
         image.control_data.s = canvas.width;
         image.control_data.v = canvas.height;
         try image.write(writer);

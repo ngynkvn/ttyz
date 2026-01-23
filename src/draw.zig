@@ -7,7 +7,7 @@ pub const Canvas = struct {
     height: usize,
     canvas: []u8,
 
-    pub fn writeKitty(canvas: *Canvas, writer: *std.io.Writer) !void {
+    pub fn writeKitty(canvas: *Canvas, writer: *std.Io.Writer) !void {
         var image = kitty.Image.default;
         image.params.a = 'T';
         image.params.f = 32;
@@ -43,7 +43,7 @@ pub const Canvas = struct {
         }
     }
 
-    pub fn write(canvas: *Canvas, writer: *std.io.Writer) !void {
+    pub fn write(canvas: *Canvas, writer: *std.Io.Writer) !void {
         try base64.standard.Encoder.encodeWriter(writer, canvas.canvas);
     }
 };

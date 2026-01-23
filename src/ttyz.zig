@@ -274,24 +274,6 @@ pub const Event = union(enum) {
     interrupt: void,
 };
 
-pub const panic = std.debug.FullPanic(panicTty);
-
-pub fn panicTty(msg: []const u8, ra: ?usize) noreturn {
-    if (tty_handle) |handle| {
-        const tty = std.fs.File{ .handle = handle };
-        tty.writeAll(CONFIG.EXIT_SEQUENCE) catch {};
-        if (orig_termios) |orig| _ = system.tcsetattr(tty.handle, .FLUSH, &orig);
-    }
-    std.debug.defaultPanic(msg, ra);
-}
-
-pub fn queryHandleSize(handle: std.fs.File.Handle) !posix.winsize {
-    var ws: posix.winsize = .{ .row = 0, .col = 0, .xpixel = 0, .ypixel = 0 };
-    const result = system.ioctl(handle, posix.T.IOCGWINSZ, @intFromPtr(&ws));
-    if (posix.errno(result) != .SUCCESS) return error.IoctlReturnedNonZero;
-    return ws;
-}
-
 const Parser = struct {
     buf: []u8,
     i: usize,
@@ -353,7 +335,10 @@ const Parser = struct {
                 const last_byte = p.buf[p.buf.len - 1];
                 switch (last_byte) {
                     'R' => event = parseCursorPos(p.buf[s .. p.buf.len - 1]),
-                    else => std.debug.panic("unexpected last byte: {c}; {s}", .{ last_byte, p.buf[s..] }),
+                    else => {
+                        std.log.warn("unexpected last byte: {c}; {f}", .{ last_byte, std.ascii.hexEscape(p.buf, .lower) });
+                        break :state;
+                    },
                 }
             },
         }
@@ -376,8 +361,27 @@ const Parser = struct {
     }
 };
 
+pub fn queryHandleSize(handle: std.fs.File.Handle) !posix.winsize {
+    var ws: posix.winsize = .{ .row = 0, .col = 0, .xpixel = 0, .ypixel = 0 };
+    const result = system.ioctl(handle, posix.T.IOCGWINSZ, @intFromPtr(&ws));
+    if (posix.errno(result) != .SUCCESS) return error.IoctlReturnedNonZero;
+    return ws;
+}
+
 pub fn _cast(T: type, value: anytype) T {
     return std.math.lossyCast(T, value);
+}
+
+pub const panic = std.debug.FullPanic(panicTty);
+
+pub fn panicTty(msg: []const u8, ra: ?usize) noreturn {
+    if (tty_handle) |handle| {
+        const tty = std.fs.File{ .handle = handle };
+        tty.writeAll(CONFIG.EXIT_SEQUENCE) catch {};
+        if (orig_termios) |orig| _ = system.tcsetattr(tty.handle, .FLUSH, &orig);
+    }
+    std.log.err("panic: {s}", .{msg});
+    std.debug.defaultPanic(msg, ra);
 }
 
 test {

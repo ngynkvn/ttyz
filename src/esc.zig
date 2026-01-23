@@ -40,5 +40,5 @@ pub const SET_TRUCOLOR       = ESC ++ "[38;2;{};{};{}m";
 pub const RESET_COLORS       = ESC ++ "[m";
 // zig fmt: on
 
-pub const ENABLE_MOUSE_TRACKING = ESC ++ "[?1000;1006;1015h";
-pub const DISABLE_MOUSE_TRACKING = ESC ++ "[?1000;1006;1015l";
+pub const ENABLE_MOUSE_TRACKING = ESC ++ "[?1000;1006h";
+pub const DISABLE_MOUSE_TRACKING = ESC ++ "[?1000;1006l";

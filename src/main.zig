@@ -1,21 +1,29 @@
 const std = @import("std");
 const ttyz = @import("ttyz");
+const builtin = std.builtin;
 const termdraw = ttyz.termdraw;
 const E = ttyz.E;
 const layout = ttyz.layout;
 
+var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
+var arena = std.heap.ArenaAllocator.init(gpa.allocator());
+const allocator = arena.allocator();
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
     defer _ = gpa.deinit();
-    var arena = std.heap.ArenaAllocator.init(gpa.allocator());
     defer arena.deinit();
-    const allocator = arena.allocator();
 
-    const tty = try std.fs.openFileAbsolute("/dev/tty", .{ .mode = .read_write });
-    var w = tty.writer(&.{});
+    // TODO: comptime generate a parser for args
+    const args = try parseArgs();
 
     const cwd = try std.process.getCwdAlloc(allocator);
     defer allocator.free(cwd);
+
+    if (args.debug) {
+        try openLogFile();
+    }
+
+    const tty = try std.fs.openFileAbsolute("/dev/tty", .{ .mode = .read_write });
+    var w = tty.writer(&.{});
 
     const path = try std.fs.path.join(allocator, &.{ cwd, "testdata/mushroom.png" });
     defer allocator.free(path);
@@ -36,11 +44,12 @@ pub fn main() !void {
         std.log.err("Error deinitializing raw mode: {s}", .{@errorName(e)});
     };
     try s.start();
+
     var last_event: ?ttyz.Event = null;
     var L = layout.Context.init(allocator, &s);
     defer L.deinit();
+    var clr = ttyz.colorz.wrap(&s.writer.interface);
 
-    var c = ttyz.colorz.wrap(&s.writer.interface);
     while (s.running) {
         _ = L.begin();
 
@@ -85,12 +94,11 @@ pub fn main() !void {
                         &s.writer.interface,
                         .{ .x = ui.x, .y = ui.y, .width = ui.width, .height = ui.height },
                     );
-                    try c.print(E.GOTO ++ "({},{})({},{})", .{ ui.y, ui.x, ui.y, ui.x, ui.width, ui.height });
+                    try clr.print(E.GOTO ++ "@[.green]({},{})({},{})@[.reset]", .{ ui.y, ui.x, ui.y, ui.x, ui.width, ui.height });
                 },
             }
         }
 
-        // try termdraw.TermDraw.box(&s.writer.interface, .{ .x = 5, .y = 10, .width = 10, .height = 10 });
         while (s.pollEvent()) |event| {
             switch (event) {
                 .key => |key| {
@@ -108,39 +116,56 @@ pub fn main() !void {
                 },
             }
         }
+        const log_height = 8;
+        try s.goto(s.height - log_height, 0);
+        try s.print("Log\n\r", .{});
+        const buf = logWriter.written();
+        var log_lines = std.mem.splitBackwardsScalar(u8, buf, '\n');
+        for (0..log_height) |i| {
+            const line = log_lines.next() orelse break;
+            try s.print(E.GOTO ++ "{s}", .{ s.height - i, 0, line });
+        }
         try s.flush();
         std.Thread.sleep(std.time.ns_per_s / 16);
     }
 }
-
-pub const panic = ttyz.panic;
 
 pub const std_options: std.Options = .{
     .log_level = .debug,
     .logFn = logHandlerFn,
 };
 
-var logHandle: ?std.fs.File = null;
-fn initLogHandle() !void {}
+/// Arguments
+/// debug: bool,
+/// log_path: []const u8,
+const Args = struct {
+    debug: bool,
+    log_path: []const u8,
+    pub const default = Args{ .debug = false, .log_path = "/tmp/log.txt" };
+};
 
-fn deinitLogHandle() !void {
-    _ = logHandle.?.close();
-}
-/// copy of std.log.defaultLog
-fn logHandlerFn(
-    comptime level: std.log.Level,
-    comptime scope: @Type(.enum_literal),
-    comptime format: []const u8,
-    args: anytype,
-) void {
-    const level_txt = comptime asText(level);
-    const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
-    var buffer: [64]u8 = undefined;
-    const stderr = std.debug.lockStderrWriter(&buffer);
-    defer std.debug.unlockStderrWriter();
-    nosuspend stderr.print(level_txt ++ prefix2 ++ format ++ "\n", args) catch return;
+fn parseArgs() !Args {
+    var args = std.process.args();
+    _ = args.skip();
+    var parsed_args: Args = .default;
+    if (args.next()) |arg| {
+        if (std.mem.eql(u8, arg, "--debug") or std.mem.eql(u8, arg, "-d")) {
+            parsed_args.debug = true;
+            parsed_args.log_path = args.next() orelse Args.default.log_path;
+        }
+    }
+    return parsed_args;
 }
 
+/// Panic handler
+/// Closes the log file and calls the library panic handler
+pub const panic = std.debug.FullPanic(panicCloseLogHandle);
+pub fn panicCloseLogHandle(msg: []const u8, ra: ?usize) noreturn {
+    closeLogFile();
+    ttyz.panicTty(msg, ra);
+}
+
+/// Converts a log level to a text string
 fn asText(comptime self: std.log.Level) []const u8 {
     return switch (self) {
         .err => "\x1b[31mERR\x1b[0m",
@@ -148,4 +173,31 @@ fn asText(comptime self: std.log.Level) []const u8 {
         .info => "\x1b[32mINFO\x1b[0m",
         .debug => "\x1b[36mDEBUG\x1b[0m",
     };
+}
+
+var debug = false;
+var logWriter = std.Io.Writer.Allocating.init(allocator);
+/// copy of std.log.defaultLog
+fn logHandlerFn(
+    comptime level: std.log.Level,
+    comptime scope: @Type(.enum_literal),
+    comptime format: []const u8,
+    args: anytype,
+) void {
+    if (!debug) return;
+    const level_txt = comptime asText(level);
+    const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
+    nosuspend logWriter.writer.print(level_txt ++ prefix2 ++ format ++ "\n", args) catch {};
+}
+
+fn openLogFile() !void {
+    debug = true;
+    std.log.info("Initialized log file", .{});
+    // logHandle = try std.fs.openFileAbsolute(path, .{ .mode = .read_write });
+}
+
+fn closeLogFile() void {
+    debug = false;
+    std.log.info("Deinitializing log file", .{});
+    // if (logHandle) |handle| handle.close();
 }

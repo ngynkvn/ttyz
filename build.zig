@@ -4,11 +4,6 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const clap = b.dependency("flags", .{
-        .target = target,
-        .optimize = optimize,
-    });
-
     const ttyz_mod = b.addModule("ttyz", .{
         .root_source_file = b.path("src/ttyz.zig"),
         .target = target,
@@ -56,5 +51,5 @@ pub fn build(b: *std.Build) void {
 
     const check_step = b.step("check", "Check the app");
     check_step.dependOn(test_step);
-    check_step.dependOn(&run_cmd.step);
+    check_step.dependOn(&ttyz_exe.step);
 }

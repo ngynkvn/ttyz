@@ -7,7 +7,6 @@ const std = @import("std");
 
 const Event = @import("event.zig").Event;
 const frame = @import("frame.zig");
-const queryHandleSize = @import("screen.zig").queryHandleSize;
 const Screen = @import("screen.zig").Screen;
 
 /// Generic event/render loop runner.
@@ -38,9 +37,8 @@ pub fn Runner(comptime T: type) type {
             if (sig == std.posix.SIG.WINCH) {
                 if (signal_screen) |screen| {
                     // Query new size and push resize event
-                    if (queryHandleSize(screen.fd)) |ws| {
-                        screen.pushEvent(.{ .resize = .{ .width = ws.col, .height = ws.row } });
-                    } else |_| {}
+                    const size = screen.querySize();
+                    screen.pushEvent(.{ .resize = .{ .width = size.width, .height = size.height } });
                 }
             }
         }

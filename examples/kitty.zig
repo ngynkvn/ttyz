@@ -94,8 +94,8 @@ pub fn main(init: std.process.Init) !void {
     // Wait for key press
     while (true) {
         var input_buf: [32]u8 = undefined;
-        const rc = std.posix.system.read(screen.fd, &input_buf, input_buf.len);
-        if (rc > 0) break;
+        const bytes_read = screen.read(&input_buf) catch 0;
+        if (bytes_read > 0) break;
     }
 
     // Clear all images before exiting

@@ -1,6 +1,7 @@
 //! Screen - Main terminal I/O interface
 //!
 //! Manages raw mode initialization, event handling, and output buffering.
+//! Supports both real TTY and test backends for output capture.
 
 const std = @import("std");
 const posix = std.posix;
@@ -9,6 +10,10 @@ const system = posix.system;
 const E = @import("esc.zig");
 const Event = @import("event.zig").Event;
 const parser = @import("parser.zig");
+const backend_mod = @import("backend.zig");
+pub const Backend = backend_mod.Backend;
+pub const TtyBackend = backend_mod.TtyBackend;
+pub const TestBackend = backend_mod.TestBackend;
 
 var orig_termios: ?posix.termios = null;
 var tty_fd: ?posix.fd_t = null;
@@ -65,17 +70,14 @@ pub const Screen = struct {
         var default_events_buf: [default_events_size]Event = undefined;
     };
 
-    file: std.Io.File,
-    /// The underlying TTY file descriptor.
-    fd: posix.fd_t,
+    /// Backend for I/O operations (TTY or test).
+    backend: Backend,
     /// Terminal width in columns.
     width: u16,
     /// Terminal height in rows.
     height: u16,
     /// Mutex for thread-safe output operations.
     lock: std.Thread.Mutex,
-    /// Buffered writer for terminal output.
-    writer: std.Io.File.Writer,
     /// Queue for pending input events.
     event_queue: std.Deque(Event),
     /// Set to false to stop the main loop.
@@ -87,58 +89,58 @@ pub const Screen = struct {
     /// Stored options for cleanup.
     options: Options,
 
+    // Legacy field for backward compatibility - returns fd from TTY backend or -1
+    pub fn getFd(self: *Screen) posix.fd_t {
+        return switch (self.backend) {
+            .tty => |t| t.fd,
+            .testing => -1,
+        };
+    }
+
     /// Enter "raw mode", returning a struct that wraps around the provided tty file
     pub fn init(io: std.Io, options: Options) !Screen {
-        const f = try std.Io.Dir.openFileAbsolute(io, options.tty_path, .{ .mode = .read_write });
-        return try initFrom(io, f, options);
+        const tty_backend = try TtyBackend.init(io, options.tty_path, options.writer, options.handle_sigint);
+        return try initWithBackend(.{ .tty = tty_backend }, options);
     }
 
     /// Initialize a Screen from an existing TTY file descriptor.
     pub fn initFrom(io: std.Io, f: std.Io.File, options: Options) !Screen {
-        const fd = f.handle;
-        tty_fd = fd;
-        const orig = try posix.tcgetattr(fd);
-        orig_termios = orig;
+        const tty_backend = try TtyBackend.initFromFile(io, f, options.writer, options.handle_sigint);
+        return try initWithBackend(.{ .tty = tty_backend }, options);
+    }
 
-        var raw = orig;
-        // zig fmt: off
-        raw.lflag.ECHO   = false;
-        raw.lflag.ICANON = false;
-        raw.lflag.IEXTEN = false;
-        raw.lflag.ISIG   = !options.handle_sigint;
-        raw.iflag.IXON   = false;
-        raw.iflag.ICRNL  = false;
-        raw.iflag.BRKINT = false;
-        raw.iflag.INPCK  = false;
-        raw.iflag.ISTRIP = false;
-        raw.oflag.OPOST  = false;
-        raw.cflag.CSIZE  = .CS8;
+    /// Initialize a Screen with a test backend for output capture.
+    pub fn initTest(test_backend: *TestBackend, options: Options) !Screen {
+        return try initWithBackend(.{ .testing = test_backend }, options);
+    }
 
-        raw.cc[@intFromEnum(system.V.MIN)]  = 0;
-        raw.cc[@intFromEnum(system.V.TIME)] = 1;
-        // zig fmt: on
-
-        const setrc = system.tcsetattr(fd, .FLUSH, &raw);
-        if (posix.errno(setrc) != .SUCCESS) return error.CouldNotSetTermiosFlags;
+    /// Initialize a Screen with a specific backend.
+    pub fn initWithBackend(backend: Backend, options: Options) !Screen {
+        // Set global state for panic handler (TTY only)
+        switch (backend) {
+            .tty => |t| {
+                tty_fd = t.fd;
+                orig_termios = t.orig_termios;
+            },
+            .testing => {},
+        }
 
         var self = Screen{
-            .file = f,
-            .fd = fd,
+            .backend = backend,
             .running = true,
             .width = 0,
             .height = 0,
             .lock = .{},
-            .writer = f.writerStreaming(io, options.writer),
             .event_queue = std.Deque(Event).initBuffer(options.events),
             .textinput = std.ArrayList(u8).initBuffer(options.textinput),
             .input_parser = parser.Parser.init(),
             .options = options,
         };
 
-        const ws = try self.querySize();
-        self.width = ws.col;
-        self.height = ws.row;
-        std.log.debug("windowsize is {}x{}; xpixel={d}, ypixel={d}", .{ self.width, self.height, ws.xpixel, ws.ypixel });
+        const size = self.backend.getSize();
+        self.width = size.width;
+        self.height = size.height;
+        std.log.debug("screen size is {}x{}", .{ self.width, self.height });
 
         try self.writeStartSequences();
         return self;
@@ -160,8 +162,8 @@ pub const Screen = struct {
 
     /// Write bytes directly to terminal (bypasses buffer).
     fn writeRawDirect(self: *Screen, bytes: []const u8) !usize {
-        const n = try self.writer.interface.write(bytes);
-        try self.writer.flush();
+        const n = try self.backend.write(bytes);
+        try self.backend.flush();
         return n;
     }
 
@@ -169,12 +171,8 @@ pub const Screen = struct {
     pub fn deinit(self: *Screen) !posix.E {
         self.running = false;
         try self.writeExitSequences();
-        const rc = if (orig_termios) |orig|
-            system.tcsetattr(self.fd, .FLUSH, &orig)
-        else
-            0;
-        _ = system.close(self.fd);
-        return posix.errno(rc);
+        self.backend.deinit();
+        return .SUCCESS;
     }
 
     /// Convert parser action to an Event, if applicable.
@@ -265,10 +263,9 @@ pub const Screen = struct {
     /// Non-blocking due to termios VMIN=0, VTIME=1 settings.
     pub fn readAndQueueEvents(self: *Screen) void {
         var input_buffer: [32]u8 = undefined;
-        const rc = system.read(self.fd, &input_buffer, input_buffer.len);
-        if (rc <= 0) return;
+        const bytes_read = self.backend.read(&input_buffer) catch return;
+        if (bytes_read == 0) return;
 
-        const bytes_read: usize = @intCast(rc);
         for (input_buffer[0..bytes_read]) |byte| {
             const action = self.input_parser.advance(byte);
             if (self.actionToEvent(action, byte)) |ev| {
@@ -290,17 +287,15 @@ pub const Screen = struct {
     }
 
     /// Query the current terminal size.
-    pub fn querySize(self: *Screen) !posix.winsize {
+    pub fn querySize(self: *Screen) backend_mod.Size {
         self.lock.lock();
         defer self.lock.unlock();
-        return try queryHandleSize(self.fd);
+        return self.backend.getSize();
     }
 
     /// Read raw input bytes into the provided buffer.
-    pub fn read(self: *Screen, buffer: []u8) ReadError!usize {
-        const rc = system.read(self.fd, buffer.ptr, buffer.len);
-        if (rc < 0) return error.ReadFailed;
-        return @intCast(rc);
+    pub fn read(self: *Screen, buffer: []u8) !usize {
+        return try self.backend.read(buffer);
     }
 
     /// Print formatted output to the terminal.
@@ -312,14 +307,18 @@ pub const Screen = struct {
     pub fn write(self: *Screen, buf: []const u8) !usize {
         self.lock.lock();
         defer self.lock.unlock();
-        return try self.writer.interface.write(buf);
+        return try self.backend.write(buf);
     }
 
     /// Write all bytes to the terminal.
     pub fn writeAll(self: *Screen, buf: []const u8) !void {
         self.lock.lock();
         defer self.lock.unlock();
-        try self.writer.interface.writeAll(buf);
+        // Write all by calling write in a loop
+        var written: usize = 0;
+        while (written < buf.len) {
+            written += try self.backend.write(buf[written..]);
+        }
     }
 
     /// Print formatted output with additional options.
@@ -333,14 +332,20 @@ pub const Screen = struct {
             };
             _ = std.c.nanosleep(&ts, null);
         }
-        try self.writer.interface.print(fmt, args);
+        // Format into a stack buffer then write through backend
+        var buf: [256]u8 = undefined;
+        const formatted = std.fmt.bufPrint(&buf, fmt, args) catch &buf;
+        var written: usize = 0;
+        while (written < formatted.len) {
+            written += self.backend.write(formatted[written..]) catch break;
+        }
     }
 
     /// Flush the output buffer to the terminal.
     pub fn flush(self: *Screen) !void {
         self.lock.lock();
         defer self.lock.unlock();
-        try self.writer.flush();
+        try self.backend.flush();
     }
 
     /// Clear the entire screen.

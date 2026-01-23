@@ -7,6 +7,15 @@ const ttyz = @import("ttyz");
 const E = ttyz.E;
 const text = ttyz.text;
 
+/// Sleep for the given number of nanoseconds
+fn nanosleep(ns: u64) void {
+    const ts = std.c.timespec{
+        .sec = @intCast(ns / std.time.ns_per_s),
+        .nsec = @intCast(ns % std.time.ns_per_s),
+    };
+    _ = std.c.nanosleep(&ts, null);
+}
+
 /// Draw a simple progress bar
 fn drawProgressBar(screen: *ttyz.Screen, progress: f32, width: u16) !void {
     const filled = @as(u16, @intFromFloat(progress * @as(f32, @floatFromInt(width))));
@@ -89,7 +98,7 @@ pub fn main() !void {
         try screen.print("\n" ++ E.DIM ++ "  Step {}/{}" ++ E.RESET_STYLE, .{ step, total_steps });
         try screen.flush();
 
-        std.Thread.sleep(std.time.ns_per_s / 30);
+        nanosleep(std.time.ns_per_s / 30);
         step += 1;
         frame += 1;
     }
@@ -97,5 +106,5 @@ pub fn main() !void {
     // Completion message
     try screen.print("\n\n" ++ E.FG_GREEN ++ E.BOLD ++ "  Complete!" ++ E.RESET_STYLE ++ "\n", .{});
     try screen.flush();
-    std.Thread.sleep(std.time.ns_per_s);
+    nanosleep(std.time.ns_per_s);
 }

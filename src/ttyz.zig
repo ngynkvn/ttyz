@@ -54,6 +54,12 @@ pub const E = @import("esc.zig");
 /// Generic bounded ring buffer queue.
 pub const BoundedQueue = @import("bounded_queue.zig").BoundedQueue;
 
+/// DEC ANSI escape sequence parser.
+pub const parser = @import("parser.zig");
+
+/// Comprehensive ANSI escape sequence library.
+pub const ansi = @import("ansi.zig");
+
 /// Library configuration constants.
 /// These control the default behavior when initializing a Screen.
 ///
@@ -66,15 +72,14 @@ pub const CONFIG = .{
     .HANDLE_SIGINT = true,
     .START_SEQUENCE = E.ENTER_ALT_SCREEN ++ E.CURSOR_INVISIBLE ++ E.ENABLE_MOUSE_TRACKING,
     .EXIT_SEQUENCE = E.EXIT_ALT_SCREEN ++ E.CURSOR_VISIBLE ++ E.DISABLE_MOUSE_TRACKING,
-    .TTY_HANDLE = "/dev/tty",
+    .TTY_PATH = "/dev/tty",
 };
 
 const cc = std.ascii.control_code;
 const ascii = std.ascii;
-// zig fmt: on
 
 var orig_termios: ?posix.termios = null;
-var tty_handle: ?std.fs.File.Handle = null;
+var tty_fd: ?posix.fd_t = null;
 
 /// The main interface for terminal I/O operations.
 ///
@@ -103,20 +108,79 @@ var tty_handle: ?std.fs.File.Handle = null;
 /// }
 /// ```
 pub const Screen = struct {
-    /// The underlying TTY file handle.
-    tty: std.fs.File,
+    /// Error type for Screen write operations.
+    pub const WriteError = error{WriteFailed};
+    pub const ReadError = error{ReadFailed};
+
+    /// Buffered writer interface for compatibility with existing code.
+    pub const Writer = struct {
+        pub const Interface = struct {
+            pub fn write(self: *Interface, data: []const u8) WriteError!usize {
+                return self.writer.screen.writeRaw(data);
+            }
+
+            pub fn writeAll(self: *Interface, data: []const u8) WriteError!void {
+                _ = try self.writer.screen.writeRaw(data);
+            }
+
+            pub fn print(self: *Interface, comptime fmt: []const u8, args: anytype) WriteError!void {
+                var buf: [4096]u8 = undefined;
+                const slice = std.fmt.bufPrint(&buf, fmt, args) catch return;
+                try self.writeAll(slice);
+            }
+
+            pub fn flush(self: *Interface) WriteError!void {
+                try self.writer.screen.flushBuffer();
+            }
+
+            writer: *Writer,
+        };
+
+        pub fn init(screen: *Screen) Writer {
+            var w = Writer{
+                .screen = screen,
+                .interface = undefined,
+            };
+            w.interface = .{ .writer = &w };
+            return w;
+        }
+
+        screen: *Screen,
+        interface: Interface,
+    };
+
+    /// Options for `printArgs`.
+    pub const WriteArgs = struct {
+        /// Optional sleep duration in nanoseconds before writing.
+        sleep: usize = 0,
+    };
+
+    const Signals = struct {
+        var WINCH: bool = false;
+        var INTERRUPT: bool = false;
+        fn handleSignals(sig: std.posix.SIG) callconv(.c) void {
+            if (sig == std.posix.SIG.WINCH) {
+                @atomicStore(bool, &Signals.WINCH, true, .seq_cst);
+            } else {
+                std.log.err("received unexpected signal: {}", .{sig});
+            }
+        }
+    };
+
+    /// The underlying TTY file descriptor.
+    fd: posix.fd_t,
     /// Terminal width in columns.
     width: u16,
     /// Terminal height in rows.
     height: u16,
     /// Internal output buffer.
     buffer: [4096]u8,
+    /// Position in the output buffer.
+    buffer_pos: usize,
     /// Last read data (internal use).
     last_read: []u8,
     /// Mutex for thread-safe output operations.
     lock: std.Thread.Mutex,
-    /// Buffered writer for terminal output.
-    writer: std.fs.File.Writer,
     /// Queue for pending input events.
     event_queue: BoundedQueue(Event, 32),
     /// Background I/O thread handle.
@@ -129,9 +193,8 @@ pub const Screen = struct {
     textinput_buffer: [32]u8,
     /// Text input accumulator.
     textinput: std.ArrayList(u8),
-
-    /// Error type for Screen write operations.
-    pub const Error = std.posix.WriteError;
+    /// Buffered writer for terminal output.
+    writer: Writer,
 
     /// Enter "raw mode", returning a struct that wraps around the provided tty file
     /// Entering raw mode will automatically send the sequence for entering an
@@ -143,20 +206,21 @@ pub const Screen = struct {
     /// https://zig.news/lhp/want-to-create-a-tui-application-the-basics-of-uncooked-terminal-io-17gm
     pub fn init() !Screen {
         _ = termdraw;
-        const tty = try std.fs.openFileAbsolute(CONFIG.TTY_HANDLE, .{ .mode = .read_write });
-        return try initFrom(tty);
+        const rc = system.open(CONFIG.TTY_PATH, .{ .ACCMODE = .RDWR }, @as(posix.mode_t, 0));
+        if (rc < 0) return error.OpenFailed;
+        const fd: posix.fd_t = @intCast(rc);
+        return try initFrom(fd);
     }
 
-    /// Initialize a Screen from an existing TTY file handle.
+    /// Initialize a Screen from an existing TTY file descriptor.
     /// This allows using a custom TTY instead of the default `/dev/tty`.
-    pub fn initFrom(tty: std.fs.File) !Screen {
-        tty_handle = tty.handle;
-        const orig = try posix.tcgetattr(tty.handle);
+    pub fn initFrom(fd: posix.fd_t) !Screen {
+        tty_fd = fd;
+        const orig = try posix.tcgetattr(fd);
         orig_termios = orig;
 
         var raw = orig;
         // Some explanation of the flags can be found in the links above.
-        // TODO: check out the other flags later
         // zig fmt: off
         raw.lflag.ECHO   = false;                 // Disable echo input
         raw.lflag.ICANON = false;                 // Read byte by byte
@@ -174,12 +238,12 @@ pub const Screen = struct {
         raw.cc[@intFromEnum(system.V.TIME)] = 1;  // min time to wait for response, 100ms per unit
         // zig fmt: on
 
-        const rc = system.tcsetattr(tty.handle, .FLUSH, &raw);
-        if (posix.errno(rc) != .SUCCESS) return error.CouldNotSetTermiosFlags;
+        const setrc = system.tcsetattr(fd, .FLUSH, &raw);
+        if (posix.errno(setrc) != .SUCCESS) return error.CouldNotSetTermiosFlags;
 
         var self: Screen = undefined;
         self = .{
-            .tty = tty,
+            .fd = fd,
             .running = true,
             .width = 0,
             .height = 0,
@@ -187,7 +251,8 @@ pub const Screen = struct {
             // writer
             .lock = .{},
             .buffer = std.mem.zeroes([4096]u8),
-            .writer = tty.writer(&self.buffer),
+            .buffer_pos = 0,
+            .writer = undefined,
             // input
             .io_thread = null,
             .event_queue = BoundedQueue(Event, 32).init(),
@@ -195,13 +260,47 @@ pub const Screen = struct {
             .textinput_buffer = std.mem.zeroes([32]u8),
             .textinput = std.ArrayList(u8).initBuffer(&self.textinput_buffer),
         };
+        self.writer = Writer.init(&self);
+
         const ws = try self.querySize();
         self.width = ws.col;
         self.height = ws.row;
         std.log.debug("windowsize is {}x{}; xpixel={d}, ypixel={d}", .{ self.width, self.height, ws.xpixel, ws.ypixel });
 
-        _ = try tty.write(CONFIG.START_SEQUENCE);
+        _ = try self.writeRawDirect(CONFIG.START_SEQUENCE);
         return self;
+    }
+
+    /// Write bytes directly to terminal (bypasses buffer).
+    fn writeRawDirect(self: *Screen, bytes: []const u8) WriteError!usize {
+        const rc = system.write(self.fd, bytes.ptr, bytes.len);
+        if (rc < 0) return error.WriteFailed;
+        return @intCast(rc);
+    }
+
+    /// Write bytes to internal buffer.
+    fn writeRaw(self: *Screen, bytes: []const u8) WriteError!usize {
+        const space = self.buffer.len - self.buffer_pos;
+        if (bytes.len > space) {
+            try self.flushBuffer();
+        }
+        const to_copy = @min(bytes.len, self.buffer.len - self.buffer_pos);
+        @memcpy(self.buffer[self.buffer_pos..][0..to_copy], bytes[0..to_copy]);
+        self.buffer_pos += to_copy;
+        return to_copy;
+    }
+
+    /// Flush internal buffer to terminal.
+    fn flushBuffer(self: *Screen) WriteError!void {
+        if (self.buffer_pos > 0) {
+            var written: usize = 0;
+            while (written < self.buffer_pos) {
+                const rc = system.write(self.fd, self.buffer[written..].ptr, self.buffer_pos - written);
+                if (rc < 0) return error.WriteFailed;
+                written += @as(usize, @intCast(rc));
+            }
+            self.buffer_pos = 0;
+        }
     }
 
     /// Clean up and restore terminal to its original state.
@@ -210,34 +309,14 @@ pub const Screen = struct {
     pub fn deinit(self: *Screen) !posix.E {
         self.running = false;
         if (self.io_thread) |thread| thread.join();
-        _ = try self.tty.write(CONFIG.EXIT_SEQUENCE);
+        _ = try self.writeRawDirect(CONFIG.EXIT_SEQUENCE);
         const rc = if (orig_termios) |orig|
-            system.tcsetattr(self.tty.handle, .FLUSH, &orig)
+            system.tcsetattr(self.fd, .FLUSH, &orig)
         else
             0;
-        self.tty.close();
+        _ = system.close(self.fd);
         return posix.errno(rc);
     }
-
-    const Signals = struct {
-        var WINCH: bool = false;
-        var INTERRUPT: bool = false;
-        pub const Signal = enum(c_int) {
-            WINCH = std.posix.SIG.WINCH,
-            INTERRUPT = std.posix.SIG.INT,
-            _,
-        };
-        fn handleSignals(sig: c_int) callconv(.c) void {
-            switch (@as(Signal, @enumFromInt(sig))) {
-                .WINCH => {
-                    @atomicStore(bool, &Signals.WINCH, true, .seq_cst);
-                },
-                else => {
-                    std.log.err("received unexpected signal: {d}", .{sig});
-                },
-            }
-        }
-    };
 
     /// Start the background I/O thread for event handling.
     /// This spawns a thread that reads input events and handles window resize signals.
@@ -257,22 +336,20 @@ pub const Screen = struct {
 
     /// Internal I/O loop run by the background thread.
     /// Reads input, parses events, and handles window resize signals.
-    fn ioLoop(self: *Screen) !void {
+    fn ioLoop(self: *Screen) void {
         var input_buffer = std.mem.zeroes([32]u8);
-        var reader = self.tty.readerStreaming(&input_buffer);
         while (self.running) {
             if (Signals.WINCH) {
-                const ws = try self.querySize();
+                const ws = self.querySize() catch continue;
                 std.log.info("window resized: {[row]}x{[col]}; {[xpixel]}x{[ypixel]}", ws);
                 self.width = ws.col;
                 self.height = ws.row;
                 @atomicStore(bool, &Signals.WINCH, false, .seq_cst);
             }
-            const ev = Parser.collectEvents(&reader.interface) catch |e| {
-                switch (e) {
-                    error.UnknownEvent => {},
-                    else => {},
-                }
+            const rc = system.read(self.fd, &input_buffer, input_buffer.len);
+            if (rc <= 0) continue;
+            const bytes_read: usize = @intCast(rc);
+            const ev = InputParser.parseInput(input_buffer[0..bytes_read]) catch {
                 continue;
             };
             self.event_queue.pushBackBounded(ev) catch {};
@@ -297,7 +374,7 @@ pub const Screen = struct {
     pub fn queryPos(self: *Screen) !void {
         self.lock.lock();
         defer self.lock.unlock();
-        _ = try self.tty.write(E.REPORT_CURSOR_POS);
+        _ = try self.writeRawDirect(E.REPORT_CURSOR_POS);
     }
 
     /// Query the current terminal size.
@@ -305,13 +382,15 @@ pub const Screen = struct {
     pub fn querySize(self: *Screen) !posix.winsize {
         self.lock.lock();
         defer self.lock.unlock();
-        return try queryHandleSize(self.tty.handle);
+        return try queryHandleSize(self.fd);
     }
 
     /// Read raw input bytes into the provided buffer.
     /// Returns the number of bytes read.
-    pub fn read(self: *Screen, buffer: []u8) !usize {
-        return self.tty.read(buffer);
+    pub fn read(self: *Screen, buffer: []u8) ReadError!usize {
+        const rc = system.read(self.fd, buffer.ptr, buffer.len);
+        if (rc < 0) return error.ReadFailed;
+        return @intCast(rc);
     }
 
     /// Print formatted output to the terminal.
@@ -325,7 +404,7 @@ pub const Screen = struct {
     pub fn write(self: *Screen, buf: []const u8) !usize {
         self.lock.lock();
         defer self.lock.unlock();
-        return try self.writer.interface.write(buf);
+        return try self.writeRaw(buf);
     }
 
     /// Write all bytes to the terminal.
@@ -333,22 +412,24 @@ pub const Screen = struct {
     pub fn writeAll(self: *Screen, buf: []const u8) !void {
         self.lock.lock();
         defer self.lock.unlock();
-        try self.writer.interface.writeAll(buf);
+        _ = try self.writeRaw(buf);
     }
-
-    /// Options for `printArgs`.
-    pub const WriteArgs = struct {
-        /// Optional sleep duration in nanoseconds before writing.
-        sleep: usize = 0,
-    };
 
     /// Print formatted output with additional options.
     /// Thread-safe.
     pub fn printArgs(self: *Screen, comptime fmt: []const u8, args: anytype, wargs: WriteArgs) !void {
         self.lock.lock();
         defer self.lock.unlock();
-        if (wargs.sleep != 0) std.Thread.sleep(wargs.sleep);
-        try self.writer.interface.print(fmt, args);
+        if (wargs.sleep != 0) {
+            const ts = std.c.timespec{
+                .sec = @intCast(wargs.sleep / std.time.ns_per_s),
+                .nsec = @intCast(wargs.sleep % std.time.ns_per_s),
+            };
+            _ = std.c.nanosleep(&ts, null);
+        }
+        var buf: [4096]u8 = undefined;
+        const slice = std.fmt.bufPrint(&buf, fmt, args) catch return;
+        _ = try self.writeRaw(slice);
     }
 
     /// Flush the output buffer to the terminal.
@@ -356,7 +437,7 @@ pub const Screen = struct {
     pub fn flush(self: *Screen) !void {
         self.lock.lock();
         defer self.lock.unlock();
-        return self.writer.interface.flush();
+        return self.flushBuffer();
     }
 
     /// Clear the entire screen.
@@ -478,85 +559,122 @@ pub const Event = union(enum) {
     interrupt: void,
 };
 
-const Parser = struct {
-    const ParseState = enum { start, esc, csi, csi_num };
-    pub fn collectEvents(r: *std.Io.Reader) !Event {
-        try r.fillMore();
-        defer r.tossBuffered();
-        state: switch (ParseState.start) {
-            .start => {
-                const c = try r.takeByte();
-                if (ascii.isPrint(c) or ascii.isWhitespace(c)) {
-                    return .{ .key = @enumFromInt(c) };
-                }
-                return switch (try r.takeByte()) {
-                    3 => .interrupt,
-                    cc.esc => continue :state .esc,
-                    else => break :state,
-                };
+/// Input parser for terminal events.
+const InputParser = struct {
+    pub fn parseInput(buf: []const u8) !Event {
+        if (buf.len == 0) return error.UnknownEvent;
+
+        const c = buf[0];
+
+        // Handle Ctrl+C
+        if (c == 3) return .interrupt;
+
+        // Handle printable characters and whitespace
+        if (ascii.isPrint(c) or ascii.isWhitespace(c)) {
+            return .{ .key = @enumFromInt(c) };
+        }
+
+        // Handle escape sequences
+        if (c == cc.esc) {
+            if (buf.len == 1) return .{ .key = .esc };
+            if (buf[1] == '[') {
+                return parseCSI(buf[2..]);
+            }
+        }
+
+        return error.UnknownEvent;
+    }
+
+    fn parseCSI(buf: []const u8) !Event {
+        if (buf.len == 0) return error.UnknownEvent;
+
+        // Arrow keys
+        switch (buf[0]) {
+            'A' => return .{ .key = .arrow_up },
+            'B' => return .{ .key = .arrow_down },
+            'C' => return .{ .key = .arrow_right },
+            'D' => return .{ .key = .arrow_left },
+            '<' => return parseSgrMouse(buf[1..]),
+            '0'...'9' => {
+                // CSI number sequences (cursor pos, function keys)
+                return parseCSINumber(buf);
             },
-            .esc => {
-                const c = r.takeByte() catch |e| if (e == error.EndOfStream) cc.esc else break :state;
-                return switch (c) {
-                    '[' => continue :state .csi,
-                    else => break :state,
-                };
-            },
-            .csi => {
-                return switch (try r.peekByte()) {
-                    'A', 'B', 'C', 'D' => .{ .key = .arrow(try r.takeByte()) },
-                    '0'...'9' => continue :state .csi_num,
-                    '<' => parseSgrMouse(r) catch error.UnknownEvent,
-                    else => break :state,
-                };
-            },
-            .csi_num => {
-                const cursor_pos = try r.peekDelimiterExclusive('R');
-                return parseCursorPos(cursor_pos) orelse error.UnknownEvent;
-            },
+            else => {},
         }
         return error.UnknownEvent;
     }
 
-    pub fn parseCursorPos(buf: []u8) ?Event {
-        const sep = std.mem.indexOf(u8, buf, ";") orelse return null;
-        const row = std.fmt.parseInt(u16, buf[0..sep], 10) catch return null;
-        const col = std.fmt.parseInt(u16, buf[sep + 1 ..], 10) catch return null;
-        return .{ .cursor_pos = .{ .row = row, .col = col } };
+    fn parseCSINumber(buf: []const u8) !Event {
+        // Look for cursor position response: <row>;<col>R
+        if (std.mem.indexOfScalar(u8, buf, 'R')) |r_pos| {
+            if (std.mem.indexOfScalar(u8, buf[0..r_pos], ';')) |sep| {
+                const row = std.fmt.parseInt(u16, buf[0..sep], 10) catch return error.UnknownEvent;
+                const col = std.fmt.parseInt(u16, buf[sep + 1 .. r_pos], 10) catch return error.UnknownEvent;
+                return .{ .cursor_pos = .{ .row = row, .col = col } };
+            }
+        }
+
+        // Function keys: <num>~
+        if (std.mem.indexOfScalar(u8, buf, '~')) |tilde_pos| {
+            const num = std.fmt.parseInt(u8, buf[0..tilde_pos], 10) catch return error.UnknownEvent;
+            if (Event.Key.fromCsiNum(num, '~')) |key| {
+                return .{ .key = key };
+            }
+        }
+
+        return error.UnknownEvent;
     }
 
-    pub fn parseSgrMouse(r: *std.Io.Reader) !Event {
-        assert(try r.takeByte() == '<');
-        const Pbutton = try r.takeDelimiter(';') orelse return error.UnknownEvent;
-        const button: Event.MouseButton = switch (Pbutton[0]) {
+    fn parseSgrMouse(buf: []const u8) !Event {
+        // SGR mouse: <button>;<col>;<row>M or <button>;<col>;<row>m
+        var pos: usize = 0;
+
+        // Parse button
+        const button_end = std.mem.indexOfScalar(u8, buf[pos..], ';') orelse return error.UnknownEvent;
+        const button_code = buf[pos..][0..button_end];
+        const button: Event.MouseButton = switch (button_code[0]) {
             '0' => .left,
             '1' => .middle,
             '2' => .right,
+            '6' => |b| if (button_code.len > 1 and b == '6') switch (button_code[1]) {
+                '4' => .scroll_up,
+                '5' => .scroll_down,
+                else => .unknown,
+            } else .unknown,
             else => .unknown,
         };
+        pos += button_end + 1;
 
-        const Pcol = try r.takeDelimiter(';') orelse return error.UnknownEvent;
-        const col = std.fmt.parseInt(u16, Pcol, 10) catch return error.UnknownEvent;
+        // Parse column
+        const col_end = std.mem.indexOfScalar(u8, buf[pos..], ';') orelse return error.UnknownEvent;
+        const col = std.fmt.parseInt(u16, buf[pos..][0..col_end], 10) catch return error.UnknownEvent;
+        pos += col_end + 1;
 
-        const Prow_state = try r.peekGreedy(1);
-        const row = std.fmt.parseInt(u16, Prow_state[0 .. Prow_state.len - 1], 10) catch return error.UnknownEvent;
-
-        const Pbutton_state = Prow_state[Prow_state.len - 1];
-        const button_state: Event.MouseButtonState = switch (Pbutton_state) {
-            'M' => .pressed,
-            'm' => .released,
-            else => .unknown,
-        };
+        // Parse row and state
+        var row_end = buf.len - pos;
+        var button_state: Event.MouseButtonState = .unknown;
+        for (buf[pos..], 0..) |ch, i| {
+            if (ch == 'M') {
+                row_end = i;
+                button_state = .pressed;
+                break;
+            } else if (ch == 'm') {
+                row_end = i;
+                button_state = .released;
+                break;
+            }
+        }
+        const row = std.fmt.parseInt(u16, buf[pos..][0..row_end], 10) catch return error.UnknownEvent;
 
         return .{ .mouse = .{ .button = button, .row = row, .col = col, .button_state = button_state } };
     }
 };
 
-/// Query the terminal size for a given file handle.
+/// Query the terminal size for a given file descriptor.
 /// Returns a `winsize` struct with terminal dimensions.
-pub fn queryHandleSize(handle: std.fs.File.Handle) !posix.winsize {
+pub fn queryHandleSize(fd: posix.fd_t) !posix.winsize {
     var ws: posix.winsize = .{ .row = 0, .col = 0, .xpixel = 0, .ypixel = 0 };
-    const result = system.ioctl(handle, posix.T.IOCGWINSZ, @intFromPtr(&ws));
+    const result = system.ioctl(fd, posix.T.IOCGWINSZ, @intFromPtr(&ws));
     if (posix.errno(result) != .SUCCESS) return error.IoctlReturnedNonZero;
     return ws;
 }
@@ -569,10 +687,9 @@ pub const panic = std.debug.FullPanic(panicTty);
 /// Internal panic handler implementation.
 /// Restores terminal state before calling the default panic handler.
 pub fn panicTty(msg: []const u8, ra: ?usize) noreturn {
-    if (tty_handle) |handle| {
-        const tty = std.fs.File{ .handle = handle };
-        tty.writeAll(CONFIG.EXIT_SEQUENCE) catch {};
-        if (orig_termios) |orig| _ = system.tcsetattr(tty.handle, .FLUSH, &orig);
+    if (tty_fd) |fd| {
+        _ = system.write(fd, CONFIG.EXIT_SEQUENCE.ptr, CONFIG.EXIT_SEQUENCE.len);
+        if (orig_termios) |orig| _ = system.tcsetattr(fd, .FLUSH, &orig);
     }
     std.log.err("panic: {s}", .{msg});
     std.debug.defaultPanic(msg, ra);

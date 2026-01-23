@@ -4,6 +4,15 @@ const builtin = std.builtin;
 const termdraw = ttyz.termdraw;
 const E = ttyz.E;
 const layout = ttyz.layout;
+
+/// Sleep for the given number of nanoseconds
+fn nanosleep(ns: u64) void {
+    const ts = std.c.timespec{
+        .sec = @intCast(ns / std.time.ns_per_s),
+        .nsec = @intCast(ns % std.time.ns_per_s),
+    };
+    _ = std.c.nanosleep(&ts, null);
+}
 const Element = layout.Element;
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
@@ -41,27 +50,11 @@ pub fn main() !void {
     defer arena.deinit();
 
     // TODO: comptime generate a parser for args
-    const args = try parseArgs();
-
-    const cwd = try std.process.getCwdAlloc(allocator);
-    defer allocator.free(cwd);
+    const args = parseArgs();
 
     if (args.debug) {
-        try enableLogging();
+        enableLogging();
     }
-
-    const tty = try std.fs.openFileAbsolute("/dev/tty", .{ .mode = .read_write });
-    var w = tty.writer(&.{});
-
-    const path = try std.fs.path.join(allocator, &.{ cwd, "testdata/mushroom.png" });
-    defer allocator.free(path);
-    var image = ttyz.kitty.Image.with(.{ .a = 'T', .t = 'f', .f = 100 }, path);
-    try image.write(&w.interface);
-
-    var canvas = try ttyz.draw.Canvas.initAlloc(allocator, 200, 200);
-    defer canvas.deinit(allocator);
-    try canvas.drawBox(0, 0, 150, 150, 0xFFFFFFFF);
-    try canvas.writeKitty(&w.interface);
 
     var s = try ttyz.Screen.init();
     defer _ = s.deinit() catch |e| {
@@ -72,8 +65,6 @@ pub fn main() !void {
     var last_event: ?ttyz.Event = null;
     var L = layout.Context.init(allocator, &s);
     defer L.deinit();
-    var clr = ttyz.colorz.wrap(&s.writer.interface);
-    clr = clr;
 
     while (s.running) {
         const renderCommands = try L.render(Root);
@@ -88,11 +79,8 @@ pub fn main() !void {
                     try s.print(E.GOTO ++ "{s}\n", .{ ui.y, ui.x, command.node.text.? });
                 },
                 .box => {
-                    try termdraw.box(
-                        &s.writer.interface,
-                        .{ .x = ui.x, .y = ui.y, .width = ui.width, .height = ui.height, .color = command.node.style.color },
-                    );
-                    try clr.print(E.GOTO ++ "@[.green]{s}@[.reset]", .{ s.height - 1, 0, s.textinput.items });
+                    // TODO: termdraw.box needs writer interface update
+                    try s.print(E.GOTO ++ "\x1b[32m{s}\x1b[0m", .{ ui.y, ui.x, s.textinput.items });
                 },
             }
         }
@@ -159,7 +147,7 @@ pub fn main() !void {
             }
         }
         try s.flush();
-        std.Thread.sleep(std.time.ns_per_s / 16);
+        nanosleep(std.time.ns_per_s / 16);
     }
 }
 
@@ -177,15 +165,11 @@ const Args = struct {
     pub const default = Args{ .debug = false, .log_path = "/tmp/ttyz.log" };
 };
 
-fn parseArgs() !Args {
-    var args = std.process.args();
-    _ = args.skip();
+fn parseArgs() Args {
+    // Simplified arg parsing for now - check env var instead
     var parsed_args: Args = .default;
-    if (args.next()) |arg| {
-        if (std.mem.eql(u8, arg, "--debug") or std.mem.eql(u8, arg, "-d")) {
-            parsed_args.debug = true;
-            parsed_args.log_path = args.next() orelse Args.default.log_path;
-        }
+    if (std.c.getenv("TTYZ_DEBUG")) |_| {
+        parsed_args.debug = true;
     }
     return parsed_args;
 }
@@ -213,20 +197,19 @@ var debug = false;
 /// copy of std.log.defaultLog
 fn logHandlerFn(
     comptime level: std.log.Level,
-    comptime scope: @Type(.enum_literal),
+    comptime scope: @EnumLiteral(),
     comptime format: []const u8,
     args: anytype,
 ) void {
     if (!debug) return;
     const level_txt = comptime asText(level);
     const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
-    var buffer: [64]u8 = undefined;
-    const stderr = std.debug.lockStderrWriter(&buffer);
-    defer std.debug.unlockStderrWriter();
-    nosuspend stderr.print(level_txt ++ prefix2 ++ format ++ "\n", args) catch return;
+    var buffer: [1024]u8 = undefined;
+    const msg = std.fmt.bufPrint(&buffer, level_txt ++ prefix2 ++ format ++ "\n", args) catch return;
+    _ = std.posix.system.write(std.posix.STDERR_FILENO, msg.ptr, msg.len);
 }
 
-fn enableLogging() !void {
+fn enableLogging() void {
     debug = true;
 }
 

@@ -6,6 +6,15 @@ const std = @import("std");
 const ttyz = @import("ttyz");
 const E = ttyz.E;
 
+/// Sleep for the given number of nanoseconds
+fn nanosleep(ns: u64) void {
+    const ts = std.c.timespec{
+        .sec = @intCast(ns / std.time.ns_per_s),
+        .nsec = @intCast(ns % std.time.ns_per_s),
+    };
+    _ = std.c.nanosleep(&ts, null);
+}
+
 pub fn main() !void {
     var screen = try ttyz.Screen.init();
     defer _ = screen.deinit() catch {};
@@ -66,6 +75,6 @@ pub fn main() !void {
         try screen.print(E.DIM ++ "Press 'q' or ESC to quit" ++ E.RESET_STYLE ++ "\n", .{});
         try screen.flush();
 
-        std.Thread.sleep(std.time.ns_per_s / 60);
+        nanosleep(std.time.ns_per_s / 60);
     }
 }

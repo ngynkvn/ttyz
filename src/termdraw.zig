@@ -50,22 +50,36 @@ const BoxOptions = struct {
 
 /// Draw a box with Unicode box-drawing characters.
 /// The box is drawn at the specified position with the given dimensions.
-pub fn box(w: *std.Io.Writer, o: BoxOptions) !void {
+/// Works with any writer that has print and writeAll methods.
+pub fn box(w: anytype, o: BoxOptions) !void {
     const x = o.x;
     const y = o.y;
     const width = o.width;
     const height = o.height;
-    if (o.color) |color| try w.print(E.SET_TRUCOLOR, .{ color[0], color[1], color[2] });
-    try w.print(E.GOTO, .{ y, x });
-    try w.writeAll(dr);
-    _ = try w.writeSplat(&.{horiz}, width -| 2);
-    try w.writeAll(dl);
-    for (1..height -| 1) |i| {
-        try w.print(E.GOTO ++ vert ++ E.GOTO ++ vert, .{ y + i, x, y + i, x + width -| 1 });
+    var buf: [256]u8 = undefined;
+    if (o.color) |color| {
+        const s = std.fmt.bufPrint(&buf, E.SET_TRUCOLOR, .{ color[0], color[1], color[2] }) catch return;
+        _ = try w.write(s);
     }
-    try w.print(E.GOTO ++ ur, .{ y + height -| 1, x });
-    _ = try w.writeSplat(&.{horiz}, width -| 2);
-    try w.writeAll(ul ++ E.RESET_COLORS);
+    const goto_s = std.fmt.bufPrint(&buf, E.GOTO, .{ y, x }) catch return;
+    _ = try w.write(goto_s);
+    _ = try w.write(dr);
+    var i: u16 = 0;
+    while (i < width -| 2) : (i += 1) {
+        _ = try w.write(horiz);
+    }
+    _ = try w.write(dl);
+    for (1..height -| 1) |row| {
+        const line_s = std.fmt.bufPrint(&buf, E.GOTO ++ vert ++ E.GOTO ++ vert, .{ y + row, x, y + row, x + width -| 1 }) catch return;
+        _ = try w.write(line_s);
+    }
+    const bottom_s = std.fmt.bufPrint(&buf, E.GOTO ++ ur, .{ y + height -| 1, x }) catch return;
+    _ = try w.write(bottom_s);
+    i = 0;
+    while (i < width -| 2) : (i += 1) {
+        _ = try w.write(horiz);
+    }
+    _ = try w.write(ul ++ E.RESET_COLORS);
 }
 
 /// Options for drawing a horizontal line.
@@ -79,9 +93,14 @@ const HLineOptions = struct {
 };
 
 /// Draw a horizontal line using the heavy horizontal box character (━).
-pub fn hline(w: *std.Io.Writer, o: HLineOptions) !void {
-    try w.print(E.GOTO, .{ o.y, o.x });
-    _ = try w.writeSplat(&.{horiz}, o.width);
+pub fn hline(w: anytype, o: HLineOptions) !void {
+    var buf: [32]u8 = undefined;
+    const s = std.fmt.bufPrint(&buf, E.GOTO, .{ o.y, o.x }) catch return;
+    _ = try w.write(s);
+    var i: u16 = 0;
+    while (i < o.width) : (i += 1) {
+        _ = try w.write(horiz);
+    }
 }
 
 /// Options for drawing a vertical line.
@@ -95,9 +114,11 @@ const VLineOptions = struct {
 };
 
 /// Draw a vertical line using the heavy vertical box character (┃).
-pub fn vline(w: *std.Io.Writer, o: VLineOptions) !void {
+pub fn vline(w: anytype, o: VLineOptions) !void {
+    var buf: [32]u8 = undefined;
     for (0..o.height) |i| {
-        try w.print(E.GOTO ++ vert, .{ o.y + @as(u16, @intCast(i)), o.x });
+        const s = std.fmt.bufPrint(&buf, E.GOTO ++ vert, .{ o.y + @as(u16, @intCast(i)), o.x }) catch return;
+        _ = try w.write(s);
     }
 }
 

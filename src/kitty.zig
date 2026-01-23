@@ -5,59 +5,56 @@ pub const Image = struct {
     pub fn setPayload(self: *Image, payload: []const u8) void {
         self.payload = payload;
     }
+
     pub fn filePath(self: *Image, path: []const u8) void {
         self.payload = path;
     }
-    pub fn write(self: *Image, w: *std.io.Writer) !void {
+
+    pub fn writePreamble(self: *Image, w: *std.io.Writer) !void {
         try w.writeAll(.{@as(u8, cc.esc)} ++ "_G");
-        inline for (@typeInfo(@FieldType(Image, "params")).@"struct".fields) |field| {
+        const pfields = @typeInfo(@FieldType(Image, "params")).@"struct".fields;
+        inline for (pfields) |field| {
             const value = @field(self.params, field.name);
-            if (value != @field(Image.default.params, field.name)) {
-                const fmt = comptime Image.Params.Format(field.name, field.type);
-                try w.print(fmt, .{value});
-            }
+            const ctype = std.meta.Child(field.type);
+            const fmt = comptime Image.Params.Format(field.name, ctype);
+            if (value) |v| try w.print(fmt, .{v});
         }
         try w.writeByte(';');
+    }
+
+    pub fn writePayload(self: *Image, w: *std.io.Writer) !void {
         try w.printBase64(self.payload);
         try w.writeAll(.{@as(u8, cc.esc)} ++ "\\");
+    }
+
+    pub fn write(self: *Image, w: *std.io.Writer) !void {
+        try self.writePreamble(w);
+        try self.writePayload(w);
         try w.flush();
     }
+
+    payload: []const u8,
+    params: Params,
+
     pub const default = Image{
         .payload = "",
-        // zig fmt: off
-        .params = .{
-            .a = 't', .q = 0,
-            // Keys for image transmission
-            .f = 32, .t = 'd', .s = 0, 
-            .v = 0, .S = 0, .O = 0, 
-            .i = 0, .I = 0, .p = 0,
-            .o = 0, .m = 0,
-            // Keys for image display
-            .x = 0, .y = 0, .w = 0,
-            .h = 0, .X = 0, .Y = 0,
-            .c = 0, .r = 0, .C = 0,
-            .U = 0, .z = 0, .P = 0,
-            .Q = 0, .H = 0, .V = 0,
-        },
-        // zig fmt: on
+        .params = .{ .a = 't', .f = 32, .t = 'd' },
     };
-    payload: []const u8,
 
-    params: Params,
     const Params = struct {
         // zig fmt: off
-        a: u8, q: u8,
+        a: ?u8 = null, q: ?u8 = null,
         // Keys for image transmission
-        f: usize, t: u8, s: usize,
-        v: usize, S: usize, O: usize,
-        i: usize, I: usize, p: usize,
-        o: u8, m: usize,
+        f: ?usize = null, t: ?u8 = null, s: ?usize = null,
+        v: ?usize = null, S: ?usize = null, O: ?usize = null,
+        i: ?usize = null, I: ?usize = null, p: ?usize = null,
+        o: ?u8 = null, m: ?usize = null,
         // Keys for image display
-        x: usize, y: usize, w: usize,
-        h: usize, X: usize, Y: usize,
-        c: usize, r: usize, C: usize,
-        U: usize, z: usize, P: usize,
-        Q: usize, H: usize, V: usize,
+        x: ?usize = null, y: ?usize = null, w: ?usize = null,
+        h: ?usize = null, X: ?usize = null, Y: ?usize = null,
+        c: ?usize = null, r: ?usize = null, C: ?usize = null,
+        U: ?usize = null, z: ?usize = null, P: ?usize = null,
+        Q: ?usize = null, H: ?usize = null, V: ?usize = null,
         // zig fmt: on
         fn Format(comptime name: []const u8, T: type) []const u8 {
             return name ++ switch (T) {

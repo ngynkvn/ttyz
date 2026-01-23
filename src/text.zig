@@ -10,7 +10,6 @@
 //! const width = text.displayWidth("Hello");      // 5
 //! ```
 
-
 /// Text utilities for terminal output.
 pub const Text = @This();
 
@@ -88,6 +87,19 @@ pub fn displayWidth(text: []const u8) usize {
             i += 4;
         }
     }
+    // std.testing.expectEqual(width, newDisplayWidth(text)) catch |e| {
+    //     @panic(@errorName(e));
+    // };
+    return width;
+}
+pub fn newDisplayWidth(text: []const u8) usize {
+    var i: usize = 0;
+    var width: usize = 0;
+    while (i < text.len) {
+        const len = std.unicode.utf8ByteSequenceLength(text[i]) catch 1;
+        width += len;
+        i += len;
+    }
     return width;
 }
 
@@ -106,144 +118,97 @@ pub fn writeHorizontalRule(writer: std.Io.Writer, width: usize, char: u8) !void 
     }
 }
 
-test "displayWidth basic ASCII" {
-    try std.testing.expectEqual(@as(usize, 5), displayWidth("hello"));
-    try std.testing.expectEqual(@as(usize, 0), displayWidth(""));
-    try std.testing.expectEqual(@as(usize, 1), displayWidth(" "));
-    try std.testing.expectEqual(@as(usize, 10), displayWidth("0123456789"));
-}
+/// Test case for displayWidth function.
+const DisplayWidthTestCase = struct {
+    input: []const u8,
+    expected: usize,
+    description: []const u8,
+};
 
-test "displayWidth Latin extended characters" {
-    // 2-byte UTF-8 sequences (Latin Extended, Greek, Cyrillic, etc.)
-    // These should be 1 column wide
+/// All displayWidth test cases in a single array.
+/// Note: Some cases document current (incorrect) behavior for known limitations.
+const display_width_test_cases = [_]DisplayWidthTestCase{
+    // Basic ASCII
+    .{ .input = "hello", .expected = 5, .description = "basic ASCII word" },
+    .{ .input = "", .expected = 0, .description = "empty string" },
+    .{ .input = " ", .expected = 1, .description = "single space" },
+    .{ .input = "0123456789", .expected = 10, .description = "digits" },
 
-    // é (U+00E9) - Latin small e with acute - 2 bytes
-    try std.testing.expectEqual(@as(usize, 1), displayWidth("é"));
-    try std.testing.expectEqual(@as(usize, 4), displayWidth("café"));
+    // 2-byte UTF-8 (Latin Extended, Greek, Cyrillic) - 1 column wide
+    .{ .input = "é", .expected = 1, .description = "Latin e with acute (U+00E9)" },
+    .{ .input = "café", .expected = 4, .description = "ASCII with Latin extended" },
+    .{ .input = "ñ", .expected = 1, .description = "Latin n with tilde (U+00F1)" },
+    .{ .input = "ü", .expected = 1, .description = "Latin u with diaeresis (U+00FC)" },
+    .{ .input = "α", .expected = 1, .description = "Greek alpha" },
+    .{ .input = "Ω", .expected = 1, .description = "Greek Omega" },
+    .{ .input = "Д", .expected = 1, .description = "Cyrillic De" },
 
-    // ñ (U+00F1) - Latin small n with tilde
-    try std.testing.expectEqual(@as(usize, 1), displayWidth("ñ"));
+    // 3-byte UTF-8 - CJK characters (2 columns wide)
+    .{ .input = "中", .expected = 2, .description = "Chinese character" },
+    .{ .input = "中文", .expected = 4, .description = "Two Chinese characters" },
+    .{ .input = "你好吗", .expected = 6, .description = "Three Chinese characters" },
+    .{ .input = "あ", .expected = 2, .description = "Japanese hiragana" },
+    .{ .input = "こん", .expected = 4, .description = "Two hiragana" },
+    .{ .input = "ア", .expected = 2, .description = "Japanese katakana" },
+    .{ .input = "カタカナ", .expected = 8, .description = "Four katakana (4*2)" },
+    .{ .input = "한", .expected = 2, .description = "Korean hangul" },
+    .{ .input = "한글", .expected = 4, .description = "Two hangul" },
 
-    // ü (U+00FC) - Latin small u with diaeresis
-    try std.testing.expectEqual(@as(usize, 1), displayWidth("ü"));
+    // Mixed ASCII and CJK
+    .{ .input = "Hello中", .expected = 7, .description = "ASCII + Chinese (5+2)" },
+    .{ .input = "Hello中文", .expected = 9, .description = "ASCII + two Chinese (5+4)" },
+    .{ .input = "AB中CD", .expected = 6, .description = "Mixed: A(1)+B(1)+中(2)+C(1)+D(1)" },
+    .{ .input = "Test中文Test", .expected = 12, .description = "ASCII-CJK-ASCII (4+4+4)" },
 
-    // Greek letters
-    try std.testing.expectEqual(@as(usize, 1), displayWidth("α")); // alpha
-    try std.testing.expectEqual(@as(usize, 1), displayWidth("Ω")); // Omega
+    // Emoji (3-byte and 4-byte)
+    .{ .input = "❤", .expected = 2, .description = "Heavy heart U+2764 (3-byte)" },
+    .{ .input = "★", .expected = 2, .description = "Star U+2605 (3-byte)" },
+    .{ .input = "☺", .expected = 2, .description = "Smiling face U+263A (3-byte)" },
+    .{ .input = "😀", .expected = 2, .description = "Grinning face (4-byte)" },
+    .{ .input = "🎉", .expected = 2, .description = "Party popper (4-byte)" },
+    .{ .input = "😀😀", .expected = 4, .description = "Two 4-byte emoji" },
 
-    // Cyrillic
-    try std.testing.expectEqual(@as(usize, 1), displayWidth("Д")); // De
-}
+    // Box drawing - KNOWN LIMITATION: should be 1 wide but returns 2
+    .{ .input = "─", .expected = 2, .description = "Box horizontal (SHOULD be 1)" },
+    .{ .input = "│", .expected = 2, .description = "Box vertical (SHOULD be 1)" },
+    .{ .input = "┌", .expected = 2, .description = "Box corner (SHOULD be 1)" },
+    .{ .input = "┌──┐", .expected = 8, .description = "Box top (SHOULD be 4)" },
 
-test "displayWidth CJK characters" {
-    // 3-byte UTF-8 sequences - CJK characters are typically 2 columns wide
+    // Zero-width characters - KNOWN LIMITATION: should be 0 but returns 2
+    .{ .input = "\u{200B}", .expected = 2, .description = "Zero-width space (SHOULD be 0)" },
+    .{ .input = "\u{200D}", .expected = 2, .description = "Zero-width joiner (SHOULD be 0)" },
 
-    // Chinese characters
-    try std.testing.expectEqual(@as(usize, 2), displayWidth("中"));
-    try std.testing.expectEqual(@as(usize, 4), displayWidth("中文"));
-    try std.testing.expectEqual(@as(usize, 6), displayWidth("你好吗"));
+    // Combining characters - 2-byte, returns 1 (should be 0 when after base)
+    .{ .input = "\u{0301}", .expected = 1, .description = "Combining acute accent alone" },
 
-    // Japanese hiragana
-    try std.testing.expectEqual(@as(usize, 2), displayWidth("あ"));
-    try std.testing.expectEqual(@as(usize, 4), displayWidth("こん"));
+    // Edge cases - single chars of each byte-length
+    .{ .input = "a", .expected = 1, .description = "1-byte ASCII" },
+    .{ .input = "é", .expected = 1, .description = "2-byte Latin" },
+    .{ .input = "中", .expected = 2, .description = "3-byte CJK" },
+    .{ .input = "😀", .expected = 2, .description = "4-byte emoji" },
 
-    // Japanese katakana
-    try std.testing.expectEqual(@as(usize, 2), displayWidth("ア"));
-    try std.testing.expectEqual(@as(usize, 8), displayWidth("カタカナ")); // 4 chars * 2 wide each
+    // Control characters (treated as 1 column)
+    .{ .input = "\n", .expected = 1, .description = "newline" },
+    .{ .input = "\t", .expected = 1, .description = "tab" },
+    .{ .input = "\r", .expected = 1, .description = "carriage return" },
 
-    // Korean hangul
-    try std.testing.expectEqual(@as(usize, 2), displayWidth("한"));
-    try std.testing.expectEqual(@as(usize, 4), displayWidth("한글"));
-}
+    // Full-width forms (3-byte, correctly 2 columns)
+    .{ .input = "Ａ", .expected = 2, .description = "Fullwidth A" },
+    .{ .input = "１", .expected = 2, .description = "Fullwidth 1" },
+    .{ .input = "ＡＢ", .expected = 4, .description = "Two fullwidth chars" },
 
-test "displayWidth mixed ASCII and CJK" {
-    // Mixed content: ASCII is 1 wide, CJK is 2 wide
-    try std.testing.expectEqual(@as(usize, 7), displayWidth("Hello中")); // 5 + 2
-    try std.testing.expectEqual(@as(usize, 9), displayWidth("Hello中文")); // 5 + 4
+    // Half-width katakana - KNOWN LIMITATION: should be 1 but returns 2
+    .{ .input = "ｱ", .expected = 2, .description = "Halfwidth katakana A (SHOULD be 1)" },
+    .{ .input = "ｲ", .expected = 2, .description = "Halfwidth katakana I (SHOULD be 1)" },
+};
 
-    // "AB中CD" = A(1) + B(1) + 中(2) + C(1) + D(1) = 6
-    try std.testing.expectEqual(@as(usize, 6), displayWidth("AB中CD"));
-
-    // More complex mixed strings
-    // T(1) + e(1) + s(1) + t(1) + 中(2) + 文(2) + T(1) + e(1) + s(1) + t(1) = 12
-    try std.testing.expectEqual(@as(usize, 12), displayWidth("Test中文Test"));
-}
-
-test "displayWidth emoji" {
-    // Basic emoji (often 3-byte or 4-byte UTF-8)
-    // Most emoji are rendered as 2 columns wide in terminals
-
-    // Simple emoji (3-byte)
-    try std.testing.expectEqual(@as(usize, 2), displayWidth("❤")); // Heavy heart (U+2764)
-    try std.testing.expectEqual(@as(usize, 2), displayWidth("★")); // Star (U+2605)
-    try std.testing.expectEqual(@as(usize, 2), displayWidth("☺")); // Smiling face (U+263A)
-
-    // 4-byte emoji
-    try std.testing.expectEqual(@as(usize, 2), displayWidth("😀")); // Grinning face
-    try std.testing.expectEqual(@as(usize, 2), displayWidth("🎉")); // Party popper
-    try std.testing.expectEqual(@as(usize, 4), displayWidth("😀😀")); // Two emoji
-}
-
-test "displayWidth box drawing characters" {
-    // Box drawing characters are 3-byte UTF-8 but should be 1 column wide
-    // Note: Current implementation treats all 3-byte as 2-wide, which is incorrect for these
-
-    // These SHOULD be 1 wide, but current impl says 2
-    // This test documents current (incorrect) behavior
-    try std.testing.expectEqual(@as(usize, 2), displayWidth("─")); // Box horizontal
-    try std.testing.expectEqual(@as(usize, 2), displayWidth("│")); // Box vertical
-    try std.testing.expectEqual(@as(usize, 2), displayWidth("┌")); // Box corner
-    try std.testing.expectEqual(@as(usize, 8), displayWidth("┌──┐")); // Box top - 4 chars * 2
-}
-
-test "displayWidth special Unicode" {
-    // Zero-width characters (SHOULD be 0 width)
-    // Current implementation doesn't handle these specially
-
-    // Zero-width space (U+200B) - 3 bytes
-    // Should be 0 but current impl returns 2
-    try std.testing.expectEqual(@as(usize, 2), displayWidth("\u{200B}"));
-
-    // Zero-width joiner (U+200D) - 3 bytes
-    try std.testing.expectEqual(@as(usize, 2), displayWidth("\u{200D}"));
-
-    // Combining characters (should be 0 width)
-    // Combining acute accent (U+0301) - 2 bytes after base char
-    try std.testing.expectEqual(@as(usize, 1), displayWidth("\u{0301}")); // Just the combining char
-}
-
-test "displayWidth edge cases" {
-    // Empty string
-    try std.testing.expectEqual(@as(usize, 0), displayWidth(""));
-
-    // Single characters of each byte-length
-    try std.testing.expectEqual(@as(usize, 1), displayWidth("a")); // 1-byte
-    try std.testing.expectEqual(@as(usize, 1), displayWidth("é")); // 2-byte
-    try std.testing.expectEqual(@as(usize, 2), displayWidth("中")); // 3-byte
-    try std.testing.expectEqual(@as(usize, 2), displayWidth("😀")); // 4-byte
-
-    // Newlines and control characters (should probably be 0, but treated as 1)
-    try std.testing.expectEqual(@as(usize, 1), displayWidth("\n"));
-    try std.testing.expectEqual(@as(usize, 1), displayWidth("\t"));
-    try std.testing.expectEqual(@as(usize, 1), displayWidth("\r"));
-}
-
-test "displayWidth full-width forms" {
-    // Full-width ASCII variants (U+FF01 to U+FF5E)
-    // These are 3-byte UTF-8 and SHOULD be 2 columns wide
-
-    try std.testing.expectEqual(@as(usize, 2), displayWidth("Ａ")); // Fullwidth A
-    try std.testing.expectEqual(@as(usize, 2), displayWidth("１")); // Fullwidth 1
-    try std.testing.expectEqual(@as(usize, 4), displayWidth("ＡＢ")); // Two fullwidth chars
-}
-
-test "displayWidth halfwidth katakana" {
-    // Half-width katakana (U+FF65 to U+FF9F)
-    // These are 3-byte UTF-8 but should be 1 column wide
-    // Current implementation incorrectly returns 2
-
-    try std.testing.expectEqual(@as(usize, 2), displayWidth("ｱ")); // Halfwidth A - SHOULD be 1
-    try std.testing.expectEqual(@as(usize, 2), displayWidth("ｲ")); // Halfwidth I - SHOULD be 1
+test "displayWidth" {
+    for (display_width_test_cases) |tc| {
+        std.testing.expectEqual(tc.expected, displayWidth(tc.input)) catch |err| {
+            std.debug.print("FAIL: {s} - input: \"{s}\"\n", .{ tc.description, tc.input });
+            return err;
+        };
+    }
 }
 
 test "repeat" {

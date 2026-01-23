@@ -1,4 +1,3 @@
-
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
@@ -60,6 +59,7 @@ pub fn build(b: *std.Build) void {
             run_cmd.addArgs(args);
         }
         const tests = b.addTest(.{
+            .name = e.name,
             .root_module = exe.root_module,
         });
         const run_tests = b.addRunArtifact(tests);

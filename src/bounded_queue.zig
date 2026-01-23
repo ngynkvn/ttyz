@@ -5,7 +5,7 @@
 //!
 //! ## Example
 //! ```zig
-//! var q = BoundedQueue(u32, 16){};
+//! var q: BoundedQueue(u32, 16) = .{};
 //! q.setup();
 //! try q.pushBackBounded(42);
 //! const val = q.popFront(); // returns 42
@@ -22,56 +22,44 @@ pub fn BoundedQueue(comptime T: type, comptime capacity: usize) type {
 
         buffer: [capacity]T = undefined,
         deque: Deque = Deque.empty,
-        initialized: bool = false,
-
-        pub fn init() Self {
-            return .{};
-        }
 
         /// Initialize the deque to use the buffer. Must be called after the
         /// struct is in its final memory location.
-        fn ensureInit(self: *Self) void {
-            if (!self.initialized) {
-                self.deque = Deque.initBuffer(&self.buffer);
-                self.initialized = true;
-            }
+        pub fn setup(self: *Self) void {
+            self.deque = Deque.initBuffer(&self.buffer);
         }
 
         /// Add an item to the back of the queue.
         /// Returns error.OutOfMemory if the queue is full.
         pub fn pushBackBounded(self: *Self, item: T) !void {
-            self.ensureInit();
             return self.deque.pushBackBounded(item);
         }
 
         /// Remove and return the front item, or null if empty.
         pub fn popFront(self: *Self) ?T {
-            self.ensureInit();
             return self.deque.popFront();
         }
 
         /// Check if the queue is empty.
-        pub fn isEmpty(self: *Self) bool {
-            self.ensureInit();
+        pub fn isEmpty(self: *const Self) bool {
             return self.deque.len == 0;
         }
 
         /// Check if the queue is at capacity.
-        pub fn isFull(self: *Self) bool {
-            self.ensureInit();
+        pub fn isFull(self: *const Self) bool {
             return self.deque.len >= capacity;
         }
 
         /// Get the current number of elements.
-        pub fn count(self: *Self) usize {
-            self.ensureInit();
+        pub fn count(self: *const Self) usize {
             return self.deque.len;
         }
     };
 }
 
 test "BoundedQueue basic operations" {
-    var q = BoundedQueue(u32, 4).init();
+    var q: BoundedQueue(u32, 4) = .{};
+    q.setup();
 
     try q.pushBackBounded(1);
     try q.pushBackBounded(2);

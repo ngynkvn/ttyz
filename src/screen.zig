@@ -123,12 +123,13 @@ pub const Screen = struct {
             .writer = f.writerStreaming(io, &self.writer_buffer),
             .writer_buffer = undefined,
             .io_thread = null,
-            .event_queue = BoundedQueue(Event, 32).init(),
+            .event_queue = .{},
             .toggle = false,
             .textinput_buffer = std.mem.zeroes([32]u8),
             .textinput = std.ArrayList(u8).initBuffer(&self.textinput_buffer),
             .input_parser = parser.Parser.init(),
         };
+        self.event_queue.setup();
 
         const ws = try self.querySize();
         self.width = ws.col;

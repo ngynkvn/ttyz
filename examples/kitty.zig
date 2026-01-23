@@ -7,6 +7,7 @@
 //! - A color gradient
 //! - Colored boxes
 //! - Image with transparency
+//! - PNG file from disk (mushroom.png)
 
 const std = @import("std");
 const ttyz = @import("ttyz");
@@ -105,6 +106,17 @@ pub fn main(init: std.process.Init) !void {
 
     writer = std.Io.Writer.fixed(&buf);
     try boxes.display(&writer);
+    _ = try screen.write(writer.buffered());
+    try screen.flush();
+
+    try screen.print("\r\n\r\n", .{});
+
+    // Display PNG file from disk
+    try screen.print("4. PNG file from disk (testdata/mushroom.png):\r\n", .{});
+    try screen.flush();
+
+    writer = std.Io.Writer.fixed(&buf);
+    try kitty.displayFile(&writer, "testdata/mushroom.png");
     _ = try screen.write(writer.buffered());
     try screen.flush();
 

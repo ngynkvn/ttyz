@@ -287,7 +287,7 @@ Common text operations:
 
 ```zig
 // Display width (handles unicode)
-const width = ttyz.text.displayWidth("Hello");
+const width = ttyz.text.graphemeCount("Hello");
 
 // Padding
 var buf: [32]u8 = undefined;

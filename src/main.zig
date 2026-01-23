@@ -10,10 +10,13 @@ pub fn main() !void {
     try s.start();
     var last_event: ?ttyz.Event = null;
     while (s.running) {
-        try s.writeAll(E.CLEAR_SCREEN);
-        try s.writeAll(E.HOME);
-        try s.writeAll("Hello, world!\n");
-        try s.print("{?}\n", .{last_event});
+        try s.print(
+            E.CLEAR_SCREEN ++
+                E.HOME ++
+                "Hello, world!\n" ++
+                "{?}\n",
+            .{last_event},
+        );
         try s.query();
         while (s.pollEvent()) |event| {
             switch (event) {
@@ -33,3 +36,5 @@ pub fn main() !void {
         std.Thread.sleep(std.time.ns_per_s / 16);
     }
 }
+
+pub const panic = ttyz.panic;

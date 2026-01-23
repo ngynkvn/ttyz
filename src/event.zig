@@ -1,11 +1,41 @@
 //! Input events from the terminal.
 //!
-//! Events are polled using `Screen.pollEvent()`.
+//! This module defines the Event union type that represents all possible
+//! input events from the terminal: keyboard, mouse, focus, resize, and cursor position.
+//!
+//! Events are polled using `Screen.pollEvent()` in the main loop.
+//!
+//! ## Example
+//! ```zig
+//! while (screen.pollEvent()) |event| {
+//!     switch (event) {
+//!         .key => |key| switch (key) {
+//!             .q, .Q => return,  // Quit on Q
+//!             .arrow_up => moveUp(),
+//!             .f1 => showHelp(),
+//!             else => {},
+//!         },
+//!         .mouse => |m| handleMouse(m.button, m.row, m.col),
+//!         .resize => |r| handleResize(r.width, r.height),
+//!         .focus => |focused| handleFocus(focused),
+//!         .interrupt => return,  // Ctrl+C
+//!         else => {},
+//!     }
+//! }
+//! ```
 
 /// Input event from the terminal.
+///
+/// This is a tagged union that can hold any of the supported event types.
+/// Use a switch statement to handle each variant.
 pub const Event = union(enum) {
     /// Keyboard key codes.
-    /// Includes ASCII characters, function keys, and navigation keys.
+    ///
+    /// Includes printable ASCII characters (a-z, A-Z, 0-9), control characters
+    /// (backspace, tab, enter, esc), function keys (F1-F12), navigation keys
+    /// (arrows, home, end, page up/down), and a catch-all for other codes.
+    ///
+    /// Values 128+ are used for non-ASCII keys to avoid conflicts with printable characters.
     pub const Key = enum(u8) {
         // zig fmt: off
         backspace = 8, tab = 9,

@@ -3,6 +3,7 @@
 //! Demonstrates animated terminal output with progress indicators using Frame and Layout.
 
 const std = @import("std");
+
 const ttyz = @import("ttyz");
 const frame = ttyz.frame;
 const Frame = ttyz.Frame;

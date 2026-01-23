@@ -2,26 +2,25 @@
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const ttyz = @import("ttyz.zig");
-const Screen = ttyz.Screen;
-const E = ttyz.E;
 
-// Re-export types
+pub const Buffer = @import("frame/buffer.zig").Buffer;
+pub const layout = @import("frame/layout.zig");
+pub const Layout = layout.Layout;
+pub const Direction = layout.Direction;
+pub const Constraint = layout.Constraint;
+pub const Rect = @import("frame/rect.zig").Rect;
 const types = @import("frame/types.zig");
 pub const Style = types.Style;
 pub const Color = types.Color;
 pub const Cell = types.Cell;
 pub const BorderStyle = types.BorderStyle;
 pub const BorderChars = types.BorderChars;
-pub const Rect = @import("frame/rect.zig").Rect;
-pub const Buffer = @import("frame/buffer.zig").Buffer;
+const ttyz = @import("ttyz.zig");
+const Screen = ttyz.Screen;
+const E = ttyz.E;
 
+// Re-export types
 // Layout types
-pub const layout = @import("frame/layout.zig");
-pub const Layout = layout.Layout;
-pub const Direction = layout.Direction;
-pub const Constraint = layout.Constraint;
-
 /// Drawing context wrapping a Buffer.
 pub const Frame = struct {
     buffer: *Buffer,

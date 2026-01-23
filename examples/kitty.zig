@@ -7,6 +7,7 @@
 //! writes escape sequences outside the Frame buffer system.
 
 const std = @import("std");
+
 const ttyz = @import("ttyz");
 const kitty = ttyz.kitty;
 const draw = ttyz.draw;

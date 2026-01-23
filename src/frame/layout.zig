@@ -4,6 +4,7 @@
 //! https://docs.rs/ratatui/latest/ratatui/layout/struct.Layout.html
 
 const std = @import("std");
+
 const Rect = @import("rect.zig").Rect;
 
 /// Direction of layout splitting.

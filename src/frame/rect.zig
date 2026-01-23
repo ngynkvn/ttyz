@@ -1,5 +1,7 @@
 //! Rectangle geometry for terminal coordinates.
 
+const std = @import("std");
+
 /// A rectangle area in the terminal.
 pub const Rect = struct {
     x: u16,
@@ -75,8 +77,6 @@ pub const Rect = struct {
         return self.width == 0 or self.height == 0;
     }
 };
-
-const std = @import("std");
 
 test "Rect.contains" {
     const rect = Rect{ .x = 10, .y = 20, .width = 30, .height = 40 };

@@ -7,13 +7,12 @@
 //! - Rendering to the terminal
 
 const std = @import("std");
-const ttyz = @import("ttyz");
 
+const ttyz = @import("ttyz");
 const Frame = ttyz.Frame;
 const Rect = ttyz.Rect;
 const frame = ttyz.frame;
 const Layout = frame.Layout;
-
 const Style = frame.Style;
 const Color = frame.Color;
 const BorderStyle = frame.BorderStyle;

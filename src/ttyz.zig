@@ -32,57 +32,44 @@
 
 const std = @import("std");
 
-// Core modules
-pub const screen = @import("screen.zig");
-pub const event = @import("event.zig");
-pub const runner = @import("runner.zig");
-
-// Re-export main types
-pub const Screen = screen.Screen;
-pub const Event = event.Event;
-pub const Runner = runner.Runner;
-pub const panic = screen.panic;
-pub const panicTty = screen.panicTty;
-pub const queryHandleSize = screen.queryHandleSize;
-
-/// Kitty graphics protocol for terminal image display.
-pub const kitty = @import("kitty.zig");
-
-/// Pixel-level RGBA canvas (alias for kitty.Canvas).
-pub const draw = struct {
-    pub const Canvas = kitty.Canvas;
-};
-
-/// Box drawing with Unicode characters.
-pub const termdraw = @import("termdraw.zig");
-
-/// Immediate-mode UI layout engine.
-pub const layout = @import("layout.zig");
-
+/// Comprehensive ANSI escape sequence library.
+pub const ansi = @import("ansi.zig");
 /// Comptime color format string parser for inline ANSI colors.
 pub const colorz = @import("colorz.zig");
-
-/// Text utilities for padding, centering, and display width.
-pub const text = @import("text.zig");
-
 /// VT100/xterm escape sequence constants.
 pub const E = @import("esc.zig");
-
-/// Generic bounded ring buffer queue.
-pub const BoundedQueue = @import("bounded_queue.zig").BoundedQueue;
-
+pub const event = @import("event.zig");
+pub const Event = event.Event;
 /// Frame-based drawing with cell buffers.
 pub const frame = @import("frame.zig");
 pub const Frame = frame.Frame;
 pub const Buffer = frame.Buffer;
 pub const Cell = frame.Cell;
 pub const Rect = frame.Rect;
-
+/// Kitty graphics protocol for terminal image display.
+pub const kitty = @import("kitty.zig");
+/// Immediate-mode UI layout engine.
+pub const layout = @import("layout.zig");
 /// DEC ANSI escape sequence parser.
 pub const parser = @import("parser.zig");
+pub const runner = @import("runner.zig");
+pub const Runner = runner.Runner;
+pub const screen = @import("screen.zig");
+pub const Screen = screen.Screen;
+pub const panic = screen.panic;
+pub const panicTty = screen.panicTty;
+pub const queryHandleSize = screen.queryHandleSize;
+/// Box drawing with Unicode characters.
+pub const termdraw = @import("termdraw.zig");
+/// Text utilities for padding, centering, and display width.
+pub const text = @import("text.zig");
 
-/// Comprehensive ANSI escape sequence library.
-pub const ansi = @import("ansi.zig");
+// Core modules
+// Re-export main types
+/// Pixel-level RGBA canvas (alias for kitty.Canvas).
+pub const draw = struct {
+    pub const Canvas = kitty.Canvas;
+};
 
 test {
     std.testing.refAllDecls(@This());

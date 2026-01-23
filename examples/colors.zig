@@ -3,6 +3,7 @@
 //! Demonstrates 16, 256, and true color support using Frame and Layout.
 
 const std = @import("std");
+
 const ttyz = @import("ttyz");
 const frame = ttyz.frame;
 const Frame = ttyz.Frame;

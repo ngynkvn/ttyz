@@ -13,8 +13,9 @@
 //! try termdraw.hline(&writer, .{ .x = 0, .y = 20, .width = 40 });
 //! ```
 
-const E = @import("ttyz.zig").E;
 const std = @import("std");
+
+const E = @import("ttyz.zig").E;
 
 /// Terminal drawing context for managing drawing state.
 pub const TermDraw = @This();

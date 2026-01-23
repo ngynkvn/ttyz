@@ -48,8 +48,9 @@
 //! ```
 
 const std = @import("std");
-const esc = @import("esc.zig");
 const comptimePrint = std.fmt.comptimePrint;
+
+const esc = @import("esc.zig");
 
 /// A writer wrapper that parses inline color codes at compile time.
 /// Generic over any writer type that has write and print methods.

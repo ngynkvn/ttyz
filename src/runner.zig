@@ -5,10 +5,10 @@
 
 const std = @import("std");
 
-const frame = @import("frame.zig");
-const Screen = @import("screen.zig").Screen;
 const Event = @import("event.zig").Event;
+const frame = @import("frame.zig");
 const queryHandleSize = @import("screen.zig").queryHandleSize;
+const Screen = @import("screen.zig").Screen;
 
 /// Generic event/render loop runner.
 ///
@@ -130,6 +130,5 @@ pub fn Runner(comptime T: type) type {
                 io.sleep(frame_duration, .awake) catch {};
             }
         }
-
     };
 }

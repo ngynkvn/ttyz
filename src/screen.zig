@@ -7,9 +7,8 @@ const posix = std.posix;
 const system = posix.system;
 
 const E = @import("esc.zig");
-const parser = @import("parser.zig");
-const BoundedQueue = @import("bounded_queue.zig").BoundedQueue;
 const Event = @import("event.zig").Event;
+const parser = @import("parser.zig");
 
 var orig_termios: ?posix.termios = null;
 var tty_fd: ?posix.fd_t = null;
@@ -78,7 +77,7 @@ pub const Screen = struct {
     /// Buffered writer for terminal output.
     writer: std.Io.File.Writer,
     /// Queue for pending input events.
-    event_queue: BoundedQueue(Event),
+    event_queue: std.Deque(Event),
     /// Set to false to stop the main loop.
     running: bool,
     /// Text input accumulator.
@@ -130,7 +129,7 @@ pub const Screen = struct {
             .height = 0,
             .lock = .{},
             .writer = f.writerStreaming(io, options.writer),
-            .event_queue = BoundedQueue(Event).init(options.events),
+            .event_queue = std.Deque(Event).initBuffer(options.events),
             .textinput = std.ArrayList(u8).initBuffer(options.textinput),
             .input_parser = parser.Parser.init(),
             .options = options,

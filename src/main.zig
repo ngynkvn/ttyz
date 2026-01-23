@@ -5,34 +5,6 @@ const termdraw = ttyz.termdraw;
 const E = ttyz.E;
 const layout = ttyz.layout;
 
-const Element = layout.Element;
-
-const Root = struct {
-    pub var props = layout.NodeProps{ .id = 1, .layout_direction = .left_right, .sizing = .As(.fit, .fit), .padding = .From(0, 0, 0, 0) };
-    pub fn render(ctx: *layout.Context) void {
-        ctx.OpenElement(Section.props);
-        Section.render(ctx);
-        ctx.CloseElement();
-        ctx.OpenElement(Section2.props);
-        Section2.render(ctx);
-        ctx.CloseElement();
-    }
-    const Section = struct {
-        pub var props = layout.NodeProps{ .id = 2, .sizing = .As(.Fixed(12), .Fixed(6)), .color = .{ 43, 255, 51, 255 } };
-        pub fn render(ctx: *layout.Context) void {
-            _ = ctx;
-            // ctx.Text("Section1");
-        }
-    };
-    const Section2 = struct {
-        pub var props = layout.NodeProps{ .id = 3, .sizing = .As(.Fixed(6), .Fixed(8)), .color = .{ 43, 255, 51, 255 } };
-        pub fn render(ctx: *layout.Context) void {
-            _ = ctx;
-            // ctx.Text("Section2");
-        }
-    };
-};
-
 pub fn main(init: std.process.Init) !void {
     const allocator = init.arena.allocator();
 
@@ -58,46 +30,79 @@ pub fn main(init: std.process.Init) !void {
     };
     try s.start();
 
-    var last_event: ?ttyz.Event = null;
-    _ = &last_event;
-    var L = layout.Context.init(allocator, &s);
-    defer L.deinit();
+    var ctx = layout.Context.init(allocator);
+    defer ctx.deinit();
+
+    // Panel dimensions (modifiable via input)
+    var left_width: u16 = 20;
+    var left_height: u16 = 8;
+    var right_width: u16 = 25;
+    var right_height: u16 = 8;
+    var active_panel: enum { left, right } = .left;
 
     while (s.running) {
-        const renderCommands = try L.render(Root);
-        defer allocator.free(renderCommands);
+        ctx.begin();
+
+        // Main horizontal container
+        {
+            ctx.open(.{
+                .direction = .horizontal,
+                .padding = layout.Padding.all(1),
+                .gap = 2,
+            });
+            defer ctx.close();
+
+            // Left panel
+            {
+                ctx.open(.{
+                    .width = .{ .fixed = left_width },
+                    .height = .{ .fixed = left_height },
+                    .border = true,
+                    .color = if (active_panel == .left) .{ 50, 50, 80, 255 } else null,
+                });
+                defer ctx.close();
+                ctx.text("Left Panel");
+            }
+
+            // Right panel
+            {
+                ctx.open(.{
+                    .width = .{ .fixed = right_width },
+                    .height = .{ .fixed = right_height },
+                    .border = true,
+                    .color = if (active_panel == .right) .{ 50, 80, 50, 255 } else null,
+                });
+                defer ctx.close();
+                ctx.text("Right Panel");
+            }
+        }
+
+        const commands = try ctx.end(s.width, s.height);
+        defer allocator.free(commands);
 
         try s.clearScreen();
         try s.home();
 
         // Title and instructions
         try s.print(E.BOLD ++ "ttyz Layout Demo" ++ E.RESET_STYLE ++ "\r\n\r\n", .{});
-        try s.print("Input: " ++ E.FG_GREEN ++ "{s}" ++ E.RESET_STYLE ++ "\r\n", .{s.textinput.items});
-        try s.print("Toggle: {s}\r\n\r\n", .{if (s.toggle) "Section1" else "Section2"});
-        try s.print(E.DIM ++ "Type WxH (e.g. 10x5) + Enter to resize\r\n", .{});
-        try s.print("Tab to toggle section, q to quit" ++ E.RESET_STYLE ++ "\r\n\r\n", .{});
+        try s.print("Active: " ++ E.FG_GREEN ++ "{s}" ++ E.RESET_STYLE ++ "\r\n", .{if (active_panel == .left) "Left" else "Right"});
+        try s.print("Size input: " ++ E.FG_CYAN ++ "{s}" ++ E.RESET_STYLE ++ "\r\n\r\n", .{s.textinput.items});
+        try s.print(E.DIM ++ "Type WxH (e.g. 10x5) + Enter to resize active panel\r\n", .{});
+        try s.print("Tab to switch panel, q to quit" ++ E.RESET_STYLE ++ "\r\n\r\n", .{});
 
-        for (renderCommands) |command| {
-            const ui = command.node.ui;
-            switch (command.node.tag) {
-                .text => {
-                    try s.print(E.GOTO ++ "{s}\r\n", .{ ui.y, ui.x, command.node.text.? });
-                },
-                .box => {
-                    try s.print(E.GOTO ++ "\x1b[32m{s}\x1b[0m", .{ ui.y, ui.x, s.textinput.items });
-                },
-            }
+        // Render all layout commands
+        for (commands) |cmd| {
+            try cmd.render(&s);
         }
 
         while (s.pollEvent()) |event| {
             std.log.info("event: {}", .{event});
             switch (event) {
                 .key => |key| {
-                    last_event = event;
                     switch (key) {
                         .q, .Q => s.running = false,
                         .tab => {
-                            s.toggle = !s.toggle;
+                            active_panel = if (active_panel == .left) .right else .left;
                         },
                         .@"0", .@"1", .@"2", .@"3", .@"4", .@"5", .@"6", .@"7", .@"8", .@"9", .x => |c| {
                             s.textinput.appendBounded(@intFromEnum(c)) catch {
@@ -119,15 +124,16 @@ pub fn main(init: std.process.Init) !void {
                                 std.log.err("failed to parse height", .{});
                                 continue;
                             };
-                            switch (s.toggle) {
-                                true => {
-                                    Root.Section.props.sizing = .As(.Fixed(new_w), .Fixed(new_h));
+                            switch (active_panel) {
+                                .left => {
+                                    left_width = new_w;
+                                    left_height = new_h;
                                 },
-                                false => {
-                                    Root.Section2.props.sizing = .As(.Fixed(new_w), .Fixed(new_h));
+                                .right => {
+                                    right_width = new_w;
+                                    right_height = new_h;
                                 },
                             }
-
                             s.textinput.shrinkRetainingCapacity(0);
                         },
                         .esc => {
@@ -136,14 +142,8 @@ pub fn main(init: std.process.Init) !void {
                         else => {},
                     }
                 },
-                .cursor_pos => |cursor_pos| {
-                    _ = cursor_pos;
-                    // try s.print("{}\n", .{cursor_pos});
-                },
-                .mouse => |mouse| {
-                    _ = mouse;
-                    // try s.print("{}\n", .{mouse});
-                },
+                .cursor_pos => {},
+                .mouse => {},
                 .focus => |focused| {
                     std.log.info("focus changed: {}", .{focused});
                 },

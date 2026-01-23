@@ -35,19 +35,23 @@ const MAX_CHUNK_SIZE: usize = 3072;
 /// Display RGBA pixel data at the current cursor position.
 /// This is the simplest way to show an image from raw pixel data.
 pub fn displayRgba(writer: *std.Io.Writer, pixels: []const u8, width: usize, height: usize) !void {
-    var image = Image.init();
-    image.setAction(.transmit_and_display);
-    image.setFormat(.rgba);
-    image.setSize(width, height);
+    var image = Image{ .params = .{
+        .a = 'T',
+        .f = 32, // RGBA
+        .s = width,
+        .v = height,
+    } };
     try image.transmit(writer, pixels);
 }
 
 /// Display RGB pixel data (no alpha) at the current cursor position.
 pub fn displayRgb(writer: *std.Io.Writer, pixels: []const u8, width: usize, height: usize) !void {
-    var image = Image.init();
-    image.setAction(.transmit_and_display);
-    image.setFormat(.rgb);
-    image.setSize(width, height);
+    var image = Image{ .params = .{
+        .a = 'T',
+        .f = 24, // RGB
+        .s = width,
+        .v = height,
+    } };
     try image.transmit(writer, pixels);
 }
 
@@ -60,10 +64,10 @@ pub fn displayFile(io: std.Io, writer: *std.Io.Writer, path: []const u8) !void {
         try std.Io.Dir.cwd().openFile(io, path, .{});
     defer file.close(io);
 
-    var image = Image.init();
-    image.setAction(.transmit_and_display);
-    image.setFormat(.png);
-    // Direct transmission (default) - send file contents, not path
+    var image = Image{ .params = .{
+        .a = 'T',
+        .f = 100, // PNG
+    } };
     try image.transmitFile(io, writer, file);
 }
 
@@ -72,9 +76,10 @@ pub fn displayFileAlloc(allocator: std.mem.Allocator, writer: *std.Io.Writer, pa
     const file_contents = try std.fs.cwd().readFileAlloc(allocator, path, 10 * 1024 * 1024);
     defer allocator.free(file_contents);
 
-    var image = Image.init();
-    image.setAction(.transmit_and_display);
-    image.setFormat(.png);
+    var image = Image{ .params = .{
+        .a = 'T',
+        .f = 100, // PNG
+    } };
     try image.transmit(writer, file_contents);
 }
 
@@ -83,35 +88,29 @@ pub fn displayFileAlloc(allocator: std.mem.Allocator, writer: *std.Io.Writer, pa
 /// Requires: absolute path, terminal must have filesystem access.
 /// Use displayFile() instead for better compatibility (works over SSH, etc).
 pub fn displayFilePath(writer: *std.Io.Writer, path: []const u8) !void {
-    var image = Image.init();
-    image.setAction(.transmit_and_display);
-    image.setFormat(.png);
-    image.setTransmission(.file);
+    var image = Image{ .params = .{
+        .a = 'T',
+        .f = 100, // PNG
+        .t = 'f',
+    } };
     try image.transmitPath(writer, path);
 }
 
 /// Delete all images from the terminal.
 pub fn deleteAll(writer: *std.Io.Writer) !void {
-    var cmd = Image.init();
-    cmd.setAction(.delete);
-    cmd.params.d = 'a'; // delete all
+    const cmd = Image{ .params = .{ .a = 'd', .d = 'a' } };
     try cmd.writeCommand(writer);
 }
 
 /// Delete a specific image by ID.
 pub fn deleteById(writer: *std.Io.Writer, image_id: usize) !void {
-    var cmd = Image.init();
-    cmd.setAction(.delete);
-    cmd.params.d = 'i'; // delete by id
-    cmd.params.i = image_id;
+    const cmd = Image{ .params = .{ .a = 'd', .d = 'i', .i = image_id } };
     try cmd.writeCommand(writer);
 }
 
 /// Clear all images at the current cursor position.
 pub fn clearAtCursor(writer: *std.Io.Writer) !void {
-    var cmd = Image.init();
-    cmd.setAction(.delete);
-    cmd.params.d = 'c'; // delete at cursor
+    const cmd = Image{ .params = .{ .a = 'd', .d = 'c' } };
     try cmd.writeCommand(writer);
 }
 
@@ -120,81 +119,9 @@ pub fn clearAtCursor(writer: *std.Io.Writer) !void {
 // =============================================================================
 
 /// An image command for the Kitty graphics protocol.
+/// Initialize with params directly: `Image{ .params = .{ .a = 'T', .f = 32, ... } }`
 pub const Image = struct {
     params: Params = .{},
-
-    /// Create a new image command with default settings.
-    pub fn init() Image {
-        return .{};
-    }
-
-    /// Create an image with specific parameters and payload (legacy API).
-    pub fn with(control_data: Params, payload: []const u8) struct { Image, []const u8 } {
-        return .{ .{ .params = control_data }, payload };
-    }
-
-    // -------------------------------------------------------------------------
-    // Setters for common parameters
-    // -------------------------------------------------------------------------
-
-    /// Set the action to perform.
-    pub fn setAction(self: *Image, action: Action) void {
-        self.params.a = @intFromEnum(action);
-    }
-
-    /// Set the pixel format.
-    pub fn setFormat(self: *Image, format: Format) void {
-        self.params.f = @intFromEnum(format);
-    }
-
-    /// Set the transmission type.
-    pub fn setTransmission(self: *Image, t: Transmission) void {
-        self.params.t = @intFromEnum(t);
-    }
-
-    /// Set the source image dimensions.
-    pub fn setSize(self: *Image, width: usize, height: usize) void {
-        self.params.s = width;
-        self.params.v = height;
-    }
-
-    /// Set the display size (for scaling).
-    pub fn setDisplaySize(self: *Image, width: usize, height: usize) void {
-        self.params.w = width;
-        self.params.h = height;
-    }
-
-    /// Set the display position offset.
-    pub fn setOffset(self: *Image, x: usize, y: usize) void {
-        self.params.x = x;
-        self.params.y = y;
-    }
-
-    /// Set the number of terminal cells to use for display.
-    pub fn setCells(self: *Image, cols: usize, rows: usize) void {
-        self.params.c = cols;
-        self.params.r = rows;
-    }
-
-    /// Set a unique ID for this image (for later reference/deletion).
-    pub fn setId(self: *Image, id: usize) void {
-        self.params.i = id;
-    }
-
-    /// Set the placement ID (for multiple placements of same image).
-    pub fn setPlacementId(self: *Image, id: usize) void {
-        self.params.p = id;
-    }
-
-    /// Set the Z-index for layering.
-    pub fn setZIndex(self: *Image, z: isize) void {
-        self.params.z = z;
-    }
-
-    /// Suppress terminal response messages.
-    pub fn setQuiet(self: *Image, level: QuietLevel) void {
-        self.params.q = @intFromEnum(level);
-    }
 
     // -------------------------------------------------------------------------
     // Transmission methods
@@ -513,17 +440,19 @@ pub const Canvas = struct {
 // Tests
 // =============================================================================
 
-test "Image.init creates default image" {
-    const img = Image.init();
+test "Image default params are null" {
+    const img = Image{};
     try std.testing.expectEqual(@as(?u8, null), img.params.a);
     try std.testing.expectEqual(@as(?usize, null), img.params.f);
 }
 
-test "Image setters work correctly" {
-    var img = Image.init();
-    img.setAction(.transmit_and_display);
-    img.setFormat(.rgba);
-    img.setSize(100, 50);
+test "Image direct initialization" {
+    const img = Image{ .params = .{
+        .a = 'T',
+        .f = 32, // RGBA
+        .s = 100,
+        .v = 50,
+    } };
 
     try std.testing.expectEqual(@as(?u8, 'T'), img.params.a);
     try std.testing.expectEqual(@as(?usize, 32), img.params.f);
@@ -532,11 +461,13 @@ test "Image setters work correctly" {
 }
 
 test "writeParams outputs correct format" {
-    var img = Image.init();
-    img.setAction(.transmit_and_display);
-    img.setFormat(.rgba);
-    img.setSize(10, 20);
-    img.params.m = 0;
+    var img = Image{ .params = .{
+        .a = 'T',
+        .f = 32, // RGBA
+        .s = 10,
+        .v = 20,
+        .m = 0,
+    } };
 
     var buf: [256]u8 = undefined;
     var writer = std.Io.Writer.fixed(&buf);
@@ -552,9 +483,7 @@ test "writeParams outputs correct format" {
 }
 
 test "writeCommand produces valid escape sequence" {
-    var img = Image.init();
-    img.setAction(.delete);
-    img.params.d = 'a';
+    var img = Image{ .params = .{ .a = 'd', .d = 'a' } };
 
     var buf: [256]u8 = undefined;
     var writer = std.Io.Writer.fixed(&buf);
@@ -571,10 +500,11 @@ test "writeCommand produces valid escape sequence" {
 }
 
 test "writeCommandWithPayload includes base64 data" {
-    var img = Image.init();
-    img.setAction(.transmit_and_display);
-    img.setFormat(.rgba);
-    img.params.m = 0;
+    var img = Image{ .params = .{
+        .a = 'T',
+        .f = 32, // RGBA
+        .m = 0,
+    } };
 
     var buf: [512]u8 = undefined;
     var writer = std.Io.Writer.fixed(&buf);
@@ -588,10 +518,12 @@ test "writeCommandWithPayload includes base64 data" {
 }
 
 test "chunked transmission splits large data" {
-    var img = Image.init();
-    img.setAction(.transmit_and_display);
-    img.setFormat(.rgba);
-    img.setSize(100, 100);
+    var img = Image{ .params = .{
+        .a = 'T',
+        .f = 32, // RGBA
+        .s = 100,
+        .v = 100,
+    } };
 
     // Create data larger than MAX_CHUNK_SIZE
     var large_data: [MAX_CHUNK_SIZE + 100]u8 = undefined;

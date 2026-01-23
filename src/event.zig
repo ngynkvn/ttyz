@@ -2,7 +2,6 @@
 //!
 //! Events are polled using `Screen.pollEvent()`.
 
-
 /// Input event from the terminal.
 pub const Event = union(enum) {
     /// Keyboard key codes.
@@ -43,13 +42,15 @@ pub const Event = union(enum) {
         q = 113, r = 114, s = 115, t = 116, u = 117, v = 118, w = 119, x = 120, y = 121, z = 122,
         // zig fmt: on
         _,
-        pub fn arrow(c: u8) Key {
+        /// Convert arrow key escape sequence suffix to Key.
+        /// Returns null for invalid input (only 'A', 'B', 'C', 'D' are valid).
+        pub fn arrow(c: u8) ?Key {
             return switch (c) {
                 'A' => .arrow_up,
                 'B' => .arrow_down,
                 'C' => .arrow_right,
                 'D' => .arrow_left,
-                else => unreachable,
+                else => null,
             };
         }
 

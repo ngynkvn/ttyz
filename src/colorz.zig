@@ -343,9 +343,7 @@ test {
         const input = test_case[0];
         const expected = test_case[1];
         const s = parseFmt(input);
-        _ = s;
-        _ = expected;
-        // try std.testing.expectEqualStrings(expected, s);
+        try std.testing.expectEqualStrings(expected, s);
     }
 }
 

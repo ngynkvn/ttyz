@@ -1,117 +1,172 @@
 //! Color showcase example
 //!
-//! Demonstrates 16, 256, and true color support along with text styles.
+//! Demonstrates 16, 256, and true color support using Frame and Layout.
 
 const std = @import("std");
 const ttyz = @import("ttyz");
-const ansi = ttyz.ansi;
-const E = ttyz.E; // Keep for format strings (SET_BG_256, SET_TRUCOLOR_BG)
+const frame = ttyz.frame;
+const Frame = ttyz.Frame;
+const Buffer = ttyz.Buffer;
+const Layout = frame.Layout;
+const Color = frame.Color;
+const Style = frame.Style;
 
-pub fn main(init: std.process.Init) !void {
-    var screen = try ttyz.Screen.init(init.io);
-    defer _ = screen.deinit() catch {};
+const ColorDemo = struct {
+    buffer: Buffer,
+    allocator: std.mem.Allocator,
+    hue_offset: u8 = 0,
+    frame_count: usize = 0,
 
-    try screen.clearScreen();
-    try screen.home();
-
-    // Title
-    try screen.print(ansi.bold ++ ansi.fg.cyan ++ "Color Showcase" ++ ansi.reset ++ "\r\n\r\n", .{});
-
-    // 16 basic colors - foreground
-    try screen.print(ansi.bold ++ "16 Basic Colors (Foreground):" ++ ansi.reset ++ "\r\n  ", .{});
-    inline for (.{ ansi.fg.black, ansi.fg.red, ansi.fg.green, ansi.fg.yellow, ansi.fg.blue, ansi.fg.magenta, ansi.fg.cyan, ansi.fg.white }) |fg| {
-        try screen.print(fg ++ "ABC" ++ ansi.reset ++ " ", .{});
+    pub fn init(self: *ColorDemo, screen: *ttyz.Screen) !void {
+        self.buffer = try Buffer.init(self.allocator, screen.width, screen.height);
     }
-    try screen.print("\r\n  ", .{});
-    inline for (.{ ansi.fg.bright_black, ansi.fg.bright_red, ansi.fg.bright_green, ansi.fg.bright_yellow, ansi.fg.bright_blue, ansi.fg.bright_magenta, ansi.fg.bright_cyan, ansi.fg.bright_white }) |fg| {
-        try screen.print(fg ++ "ABC" ++ ansi.reset ++ " ", .{});
+
+    pub fn deinit(self: *ColorDemo) void {
+        self.buffer.deinit();
     }
-    try screen.print("\r\n\r\n", .{});
 
-    // 16 basic colors - background
-    try screen.print(ansi.bold ++ "16 Basic Colors (Background):" ++ ansi.reset ++ "\r\n  ", .{});
-    inline for (.{ ansi.bg.black, ansi.bg.red, ansi.bg.green, ansi.bg.yellow, ansi.bg.blue, ansi.bg.magenta, ansi.bg.cyan, ansi.bg.white }) |bg| {
-        try screen.print(bg ++ "   " ++ ansi.reset, .{});
+    pub fn handleEvent(_: *ColorDemo, event: ttyz.Event) bool {
+        return switch (event) {
+            .key => |k| switch (k) {
+                .q, .Q, .esc => false,
+                else => true,
+            },
+            .interrupt => false,
+            else => true,
+        };
     }
-    try screen.print("\r\n  ", .{});
-    inline for (.{ ansi.bg.bright_black, ansi.bg.bright_red, ansi.bg.bright_green, ansi.bg.bright_yellow, ansi.bg.bright_blue, ansi.bg.bright_magenta, ansi.bg.bright_cyan, ansi.bg.bright_white }) |bg| {
-        try screen.print(bg ++ "   " ++ ansi.reset, .{});
+
+    pub fn render(self: *ColorDemo, screen: *ttyz.Screen) !void {
+        if (self.buffer.width != screen.width or self.buffer.height != screen.height) {
+            try self.buffer.resize(screen.width, screen.height);
+        }
+
+        var f = Frame.init(&self.buffer);
+        f.clear();
+
+        // Main layout: title, content, footer
+        const title_area, const content, const footer = f.areas(3, Layout(3).vertical(.{
+            .{ .length = 2 },
+            .{ .fill = 1 },
+            .{ .length = 1 },
+        }));
+
+        // Title
+        f.setString(2, title_area.y, "Color Showcase", .{ .bold = true }, Color.cyan, .default);
+
+        // Content sections
+        const colors16, const colors256, const truecolor, const styles = Layout(4).vertical(.{
+            .{ .length = 4 }, // 16 colors
+            .{ .length = 5 }, // 256 colors
+            .{ .length = 4 }, // True color
+            .{ .fill = 1 }, // Styles
+        }).areas(content);
+
+        // 16 basic colors
+        self.draw16Colors(&f, colors16);
+
+        // 256 color palette
+        self.draw256Colors(&f, colors256);
+
+        // True color gradient
+        self.drawTrueColor(&f, truecolor);
+
+        // Text styles
+        self.drawStyles(&f, styles);
+
+        // Footer
+        f.setString(2, footer.y, "Press Q to quit", .{ .dim = true }, .default, .default);
+
+        self.frame_count += 1;
+        if (self.frame_count % 4 == 0) self.hue_offset +%= 1;
+
+        try f.render(screen);
     }
-    try screen.print("\r\n\r\n", .{});
 
-    // 256 colors
-    try screen.print(ansi.bold ++ "256 Color Palette:" ++ ansi.reset ++ "\r\n", .{});
+    fn draw16Colors(self: *ColorDemo, f: *Frame, area: frame.Rect) void {
+        _ = self;
+        f.setString(area.x + 2, area.y, "16 Basic Colors:", .{ .bold = true }, .default, .default);
 
-    // Standard colors (0-15)
-    try screen.print("  Standard (0-15):   ", .{});
-    var c: u8 = 0;
-    while (c < 16) : (c += 1) {
-        try screen.print(E.SET_BG_256 ++ "  " ++ E.RESET_STYLE, .{c});
+        // Foreground colors
+        const fg_colors = [_]Color{ Color.black, Color.red, Color.green, Color.yellow, Color.blue, Color.magenta, Color.cyan, Color.white };
+        var x = area.x + 2;
+        for (fg_colors) |c| {
+            f.setString(x, area.y + 1, "ABC", .{}, c, .default);
+            x += 4;
+        }
+
+        // Background colors
+        x = area.x + 2;
+        for (0..8) |i| {
+            f.buffer.set(x, area.y + 2, .{ .char = ' ', .bg = Color{ .indexed = @intCast(i) } });
+            f.buffer.set(x + 1, area.y + 2, .{ .char = ' ', .bg = Color{ .indexed = @intCast(i) } });
+            f.buffer.set(x + 2, area.y + 2, .{ .char = ' ', .bg = Color{ .indexed = @intCast(i) } });
+            x += 4;
+        }
     }
-    try screen.print("\r\n", .{});
 
-    // Color cube (16-231) - show slices
-    try screen.print("  Color cube slice:  ", .{});
-    c = 16;
-    while (c < 52) : (c += 1) {
-        try screen.print(E.SET_BG_256 ++ " " ++ E.RESET_STYLE, .{c});
+    fn draw256Colors(self: *ColorDemo, f: *Frame, area: frame.Rect) void {
+        f.setString(area.x + 2, area.y, "256 Color Palette:", .{ .bold = true }, .default, .default);
+
+        // Standard 16
+        var x = area.x + 2;
+        for (0..16) |i| {
+            const c: u8 = @intCast((i + self.hue_offset) % 16);
+            f.buffer.set(x, area.y + 1, .{ .char = ' ', .bg = Color{ .indexed = c } });
+            f.buffer.set(x + 1, area.y + 1, .{ .char = ' ', .bg = Color{ .indexed = c } });
+            x += 2;
+        }
+
+        // Color cube slice
+        x = area.x + 2;
+        for (16..52) |i| {
+            const c: u8 = @intCast(16 + ((i - 16 + self.hue_offset) % 216));
+            f.buffer.set(x, area.y + 2, .{ .char = ' ', .bg = Color{ .indexed = c } });
+            x += 1;
+        }
+
+        // Grayscale
+        x = area.x + 2;
+        for (232..256) |i| {
+            f.buffer.set(x, area.y + 3, .{ .char = ' ', .bg = Color{ .indexed = @intCast(i) } });
+            x += 1;
+        }
     }
-    try screen.print("\r\n", .{});
 
-    // Grayscale (232-255)
-    try screen.print("  Grayscale:         ", .{});
-    for (232..256) |g| {
-        try screen.print(E.SET_BG_256 ++ " " ++ E.RESET_STYLE, .{g});
+    fn drawTrueColor(self: *ColorDemo, f: *Frame, area: frame.Rect) void {
+        _ = self;
+        f.setString(area.x + 2, area.y, "True Color (24-bit):", .{ .bold = true }, .default, .default);
+
+        // Rainbow gradient
+        var x = area.x + 2;
+        const width = @min(area.width - 4, 64);
+        for (0..width) |i| {
+            const hue = @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(width));
+            const rgb = hsvToRgb(hue, 1.0, 1.0);
+            f.buffer.set(x, area.y + 1, .{ .char = ' ', .bg = Color{ .rgb = .{ .r = rgb[0], .g = rgb[1], .b = rgb[2] } } });
+            f.buffer.set(x, area.y + 2, .{ .char = ' ', .bg = Color{ .rgb = .{ .r = rgb[0], .g = rgb[1], .b = rgb[2] } } });
+            x += 1;
+        }
     }
-    try screen.print("\r\n\r\n", .{});
 
-    // True color gradients
-    try screen.print(ansi.bold ++ "True Color (24-bit):" ++ ansi.reset ++ "\r\n", .{});
+    fn drawStyles(_: *ColorDemo, f: *Frame, area: frame.Rect) void {
+        f.setString(area.x + 2, area.y, "Text Styles:", .{ .bold = true }, .default, .default);
 
-    // Red gradient
-    try screen.print("  Red:      ", .{});
-    var i: u8 = 0;
-    while (i < 32) : (i += 1) {
-        const r = i * 8;
-        try screen.print(E.SET_TRUCOLOR_BG ++ " " ++ E.RESET_STYLE, .{ r, @as(u8, 0), @as(u8, 0) });
+        var x = area.x + 2;
+        f.setString(x, area.y + 1, "Bold", .{ .bold = true }, .default, .default);
+        x += 6;
+        f.setString(x, area.y + 1, "Dim", .{ .dim = true }, .default, .default);
+        x += 5;
+        f.setString(x, area.y + 1, "Italic", .{ .italic = true }, .default, .default);
+        x += 8;
+        f.setString(x, area.y + 1, "Underline", .{ .underline = true }, .default, .default);
+        x += 11;
+        f.setString(x, area.y + 1, "Reverse", .{ .reverse = true }, .default, .default);
+        x += 9;
+        f.setString(x, area.y + 1, "Strike", .{ .strikethrough = true }, .default, .default);
     }
-    try screen.print("\r\n", .{});
+};
 
-    // Rainbow gradient
-    try screen.print("  Rainbow:  ", .{});
-    i = 0;
-    while (i < 32) : (i += 1) {
-        const hue = @as(f32, @floatFromInt(i)) / 32.0;
-        const rgb = hsvToRgb(hue, 1.0, 1.0);
-        try screen.print(E.SET_TRUCOLOR_BG ++ " " ++ E.RESET_STYLE, .{ rgb[0], rgb[1], rgb[2] });
-    }
-    try screen.print("\r\n\r\n", .{});
-
-    // Text styles
-    try screen.print(ansi.bold ++ "Text Styles:" ++ ansi.reset ++ "\r\n", .{});
-    try screen.print("  " ++ ansi.bold ++ "Bold" ++ ansi.reset ++ "  ", .{});
-    try screen.print(ansi.faint ++ "Dim" ++ ansi.reset ++ "  ", .{});
-    try screen.print(ansi.italic ++ "Italic" ++ ansi.reset ++ "  ", .{});
-    try screen.print(ansi.underline ++ "Underline" ++ ansi.reset ++ "  ", .{});
-    try screen.print(ansi.reverse ++ "Reverse" ++ ansi.reset ++ "  ", .{});
-    try screen.print(ansi.crossed_out ++ "Strike" ++ ansi.reset ++ "\r\n\r\n", .{});
-
-    // Example colored output
-    try screen.print(ansi.bold ++ "Example Colored Output:" ++ ansi.reset ++ "\r\n", .{});
-    try screen.print("  " ++ ansi.fg.green ++ "Success:" ++ ansi.reset ++ " Operation completed\r\n", .{});
-    try screen.print("  " ++ ansi.fg.yellow ++ "Warning:" ++ ansi.reset ++ " Check configuration\r\n", .{});
-    try screen.print("  " ++ ansi.fg.red ++ "Error:" ++ ansi.reset ++ " Something went wrong\r\n", .{});
-    try screen.print("  " ++ ansi.bg.blue ++ ansi.fg.white ++ ansi.bold ++ " INFO " ++ ansi.reset ++ " Background + foreground + style\r\n", .{});
-    try screen.print("  " ++ ansi.italic ++ ansi.fg.cyan ++ "Styled " ++ ansi.fg.magenta ++ "rainbow " ++ ansi.fg.yellow ++ "text" ++ ansi.reset ++ "\r\n\r\n", .{});
-
-    try screen.print("Press any key to exit...", .{});
-    try screen.flush();
-
-    var buf: [1]u8 = undefined;
-    _ = try screen.read(&buf);
-}
-
-/// Convert HSV to RGB (for rainbow gradient)
 fn hsvToRgb(h: f32, s: f32, v: f32) [3]u8 {
     const i_val = @as(u32, @intFromFloat(h * 6));
     const f = h * 6 - @as(f32, @floatFromInt(i_val));
@@ -133,4 +188,9 @@ fn hsvToRgb(h: f32, s: f32, v: f32) [3]u8 {
         @intFromFloat(rgb[1] * 255),
         @intFromFloat(rgb[2] * 255),
     };
+}
+
+pub fn main(init: std.process.Init) !void {
+    var app = ColorDemo{ .buffer = undefined, .allocator = init.gpa };
+    try ttyz.Runner(ColorDemo).run(&app, init);
 }

@@ -13,153 +13,158 @@ const std = @import("std");
 const ttyz = @import("ttyz");
 const kitty = ttyz.kitty;
 const draw = ttyz.draw;
-const ansi = ttyz.ansi;
+const frame = ttyz.frame;
+const Frame = ttyz.Frame;
+const Buffer = ttyz.Buffer;
+const Layout = frame.Layout;
+const Color = frame.Color;
 
-pub fn main(init: std.process.Init) !void {
-    const allocator = init.arena.allocator();
+const KittyDemo = struct {
+    buffer: Buffer,
+    allocator: std.mem.Allocator,
+    gradient: ?draw.Canvas = null,
+    checker: ?draw.Canvas = null,
+    boxes: ?draw.Canvas = null,
+    rendered: bool = false,
 
-    var screen = try ttyz.Screen.init(init.io);
-    defer _ = screen.deinit() catch {};
+    pub fn init(self: *KittyDemo, screen: *ttyz.Screen) !void {
+        self.buffer = try Buffer.init(self.allocator, screen.width, screen.height);
 
-    try screen.clearScreen();
-    try screen.home();
-
-    try screen.print(ansi.bold ++ "Kitty Graphics Protocol Demo" ++ ansi.reset ++ "\r\n\r\n", .{});
-    try screen.print("This demo shows images using the Kitty graphics protocol.\r\n", .{});
-    try screen.print("Works in: Kitty, WezTerm, Ghostty, and compatible terminals.\r\n\r\n", .{});
-
-    // Create a gradient image
-    const gradient_width: usize = 200;
-    const gradient_height: usize = 50;
-    var gradient = try draw.Canvas.initAlloc(allocator, gradient_width, gradient_height);
-    defer gradient.deinit(allocator);
-
-    // Fill with a rainbow gradient
-    for (0..gradient_height) |y| {
-        for (0..gradient_width) |x| {
-            const hue: f32 = @as(f32, @floatFromInt(x)) / @as(f32, @floatFromInt(gradient_width));
-            const r, const g, const b = hsvToRgb(hue, 1.0, 1.0);
-            gradient.setPixel(x, y, r, g, b, 255);
-        }
-    }
-
-    try screen.print("1. Rainbow gradient ({d}x{d} pixels):\r\n", .{ gradient_width, gradient_height });
-    try screen.flush();
-
-    // Get a writer for kitty output
-    // Buffer needs to hold base64-encoded RGBA data (~4/3 of raw size) plus protocol overhead
-    var buf: [65536]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buf);
-
-    try gradient.display(&writer);
-
-    // Write the kitty command to screen
-    _ = try screen.write(writer.buffered());
-    try screen.flush();
-
-    try screen.print("\r\n\r\n", .{});
-
-    // Create a checkerboard pattern with transparency
-    const checker_size: usize = 100;
-    var checker = try draw.Canvas.initAlloc(allocator, checker_size, checker_size);
-    defer checker.deinit(allocator);
-
-    const cell_size: usize = 10;
-    for (0..checker_size) |y| {
-        for (0..checker_size) |x| {
-            const cx = x / cell_size;
-            const cy = y / cell_size;
-            const is_dark = (cx + cy) % 2 == 0;
-            if (is_dark) {
-                checker.setPixel(x, y, 50, 50, 80, 255);
-            } else {
-                checker.setPixel(x, y, 200, 200, 220, 128);
+        // Create gradient image
+        const gradient_width: usize = 200;
+        const gradient_height: usize = 50;
+        self.gradient = try draw.Canvas.initAlloc(self.allocator, gradient_width, gradient_height);
+        for (0..gradient_height) |y| {
+            for (0..gradient_width) |x| {
+                const hue: f32 = @as(f32, @floatFromInt(x)) / @as(f32, @floatFromInt(gradient_width));
+                const r, const g, const b = hsvToRgb(hue, 1.0, 1.0);
+                self.gradient.?.setPixel(x, y, r, g, b, 255);
             }
         }
-    }
 
-    try screen.print("2. Checkerboard with transparency ({d}x{d} pixels):\r\n", .{ checker_size, checker_size });
-    try screen.flush();
-
-    writer = std.Io.Writer.fixed(&buf);
-    try checker.display(&writer);
-    _ = try screen.write(writer.buffered());
-    try screen.flush();
-
-    try screen.print("\r\n\r\n", .{});
-
-    // Create colored boxes
-    const box_width: usize = 150;
-    const box_height: usize = 40;
-    var boxes = try draw.Canvas.initAlloc(allocator, box_width, box_height);
-    defer boxes.deinit(allocator);
-
-    boxes.clear();
-
-    // Draw red, green, blue boxes
-    boxes.drawBox(5, 5, 40, 30, 0xFF0000FF); // Red
-    boxes.drawBox(55, 5, 40, 30, 0xFF00FF00); // Green
-    boxes.drawBox(105, 5, 40, 30, 0xFFFF0000); // Blue
-
-    try screen.print("3. Colored boxes (RGB):\r\n", .{});
-    try screen.flush();
-
-    writer = std.Io.Writer.fixed(&buf);
-    try boxes.display(&writer);
-    _ = try screen.write(writer.buffered());
-    try screen.flush();
-
-    try screen.print("\r\n\r\n", .{});
-
-    // Display PNG file from disk
-    try screen.print("4. PNG file from disk (testdata/mushroom.png):\r\n", .{});
-    try screen.flush();
-
-    writer = std.Io.Writer.fixed(&buf);
-    try kitty.displayFile(&writer, "testdata/mushroom.png");
-    _ = try screen.write(writer.buffered());
-    try screen.flush();
-
-    try screen.print("\r\n\r\n", .{});
-    try screen.print(ansi.faint ++ "Press any key to clear images and exit..." ++ ansi.reset, .{});
-    try screen.flush();
-
-    // Wait for keypress (read input directly, non-blocking due to termios)
-    while (screen.running) {
-        // Read input
-        var input_buffer: [32]u8 = undefined;
-        const rc = std.posix.system.read(screen.fd, &input_buffer, input_buffer.len);
-        if (rc > 0) {
-            const bytes_read: usize = @intCast(rc);
-            for (input_buffer[0..bytes_read]) |byte| {
-                const action = screen.input_parser.advance(byte);
-                if (screen.actionToEvent(action, byte)) |event| {
-                    switch (event) {
-                        .key => {
-                            screen.running = false;
-                            break;
-                        },
-                        .interrupt => {
-                            screen.running = false;
-                            break;
-                        },
-                        else => {},
-                    }
+        // Create checkerboard
+        const checker_size: usize = 100;
+        self.checker = try draw.Canvas.initAlloc(self.allocator, checker_size, checker_size);
+        const cell_size: usize = 10;
+        for (0..checker_size) |y| {
+            for (0..checker_size) |x| {
+                const cx = x / cell_size;
+                const cy = y / cell_size;
+                const is_dark = (cx + cy) % 2 == 0;
+                if (is_dark) {
+                    self.checker.?.setPixel(x, y, 50, 50, 80, 255);
+                } else {
+                    self.checker.?.setPixel(x, y, 200, 200, 220, 128);
                 }
             }
         }
-        if (!screen.running) break;
-        init.io.sleep(std.Io.Duration.fromMilliseconds(10), .awake) catch {};
+
+        // Create colored boxes
+        const box_width: usize = 150;
+        const box_height: usize = 40;
+        self.boxes = try draw.Canvas.initAlloc(self.allocator, box_width, box_height);
+        self.boxes.?.clear();
+        self.boxes.?.drawBox(5, 5, 40, 30, 0xFF0000FF); // Red
+        self.boxes.?.drawBox(55, 5, 40, 30, 0xFF00FF00); // Green
+        self.boxes.?.drawBox(105, 5, 40, 30, 0xFFFF0000); // Blue
     }
 
-    // Clear all images before exiting
-    writer = std.Io.Writer.fixed(&buf);
-    try kitty.deleteAll(&writer);
-    _ = try screen.write(writer.buffered());
-    try screen.flush();
-}
+    pub fn deinit(self: *KittyDemo) void {
+        if (self.gradient) |*g| g.deinit(self.allocator);
+        if (self.checker) |*c| c.deinit(self.allocator);
+        if (self.boxes) |*b| b.deinit(self.allocator);
+        self.buffer.deinit();
+    }
 
-/// Convert HSV to RGB (h in 0-1, s in 0-1, v in 0-1)
+    pub fn handleEvent(_: *KittyDemo, event: ttyz.Event) bool {
+        return switch (event) {
+            .key => false,
+            .interrupt => false,
+            else => true,
+        };
+    }
+
+    pub fn render(self: *KittyDemo, screen: *ttyz.Screen) !void {
+        if (self.rendered) return;
+        self.rendered = true;
+
+        if (self.buffer.width != screen.width or self.buffer.height != screen.height) {
+            try self.buffer.resize(screen.width, screen.height);
+        }
+
+        var f = Frame.init(&self.buffer);
+        f.clear();
+
+        // Layout
+        const header, _ = f.areas(2, Layout(2).vertical(.{
+            .{ .length = 3 },
+            .{ .fill = 1 },
+        }));
+
+        // Title
+        f.setString(2, header.y, "Kitty Graphics Protocol Demo", .{ .bold = true }, Color.cyan, .default);
+        f.setString(2, header.y + 1, "Works in: Kitty, WezTerm, Ghostty, etc.", .{ .dim = true }, .default, .default);
+
+        try f.render(screen);
+        try screen.flush();
+
+        // Now render images directly to screen (not through Frame)
+        var buf: [65536]u8 = undefined;
+        var writer = std.Io.Writer.fixed(&buf);
+
+        // 1. Gradient
+        try screen.print("\r\n1. Rainbow gradient (200x50 pixels):\r\n", .{});
+        try screen.flush();
+        if (self.gradient) |*g| {
+            writer = std.Io.Writer.fixed(&buf);
+            try g.display(&writer);
+            _ = try screen.write(writer.buffered());
+            try screen.flush();
+        }
+
+        // 2. Checkerboard
+        try screen.print("\r\n\r\n2. Checkerboard with transparency (100x100 pixels):\r\n", .{});
+        try screen.flush();
+        if (self.checker) |*c| {
+            writer = std.Io.Writer.fixed(&buf);
+            try c.display(&writer);
+            _ = try screen.write(writer.buffered());
+            try screen.flush();
+        }
+
+        // 3. Colored boxes
+        try screen.print("\r\n\r\n3. Colored boxes (RGB):\r\n", .{});
+        try screen.flush();
+        if (self.boxes) |*b| {
+            writer = std.Io.Writer.fixed(&buf);
+            try b.display(&writer);
+            _ = try screen.write(writer.buffered());
+            try screen.flush();
+        }
+
+        // 4. PNG file
+        try screen.print("\r\n\r\n4. PNG file from disk (testdata/mushroom.png):\r\n", .{});
+        try screen.flush();
+        writer = std.Io.Writer.fixed(&buf);
+        try kitty.displayFile(&writer, "testdata/mushroom.png");
+        _ = try screen.write(writer.buffered());
+        try screen.flush();
+
+        try screen.print("\r\n\r\nPress any key to clear images and exit...", .{});
+        try screen.flush();
+    }
+
+    pub fn cleanup(self: *KittyDemo, screen: *ttyz.Screen) !void {
+        _ = self;
+        // Clear all images before exiting
+        var buf: [256]u8 = undefined;
+        var writer = std.Io.Writer.fixed(&buf);
+        try kitty.deleteAll(&writer);
+        _ = try screen.write(writer.buffered());
+        try screen.flush();
+    }
+};
+
 fn hsvToRgb(h: f32, s: f32, v: f32) struct { u8, u8, u8 } {
     const c = v * s;
     const x = c * (1.0 - @abs(@mod(h * 6.0, 2.0) - 1.0));
@@ -195,4 +200,9 @@ fn hsvToRgb(h: f32, s: f32, v: f32) struct { u8, u8, u8 } {
         @intFromFloat((g + m) * 255),
         @intFromFloat((b + m) * 255),
     };
+}
+
+pub fn main(init: std.process.Init) !void {
+    var app = KittyDemo{ .buffer = undefined, .allocator = init.arena.allocator() };
+    try ttyz.Runner(KittyDemo).run(&app, init);
 }

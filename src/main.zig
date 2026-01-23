@@ -29,9 +29,6 @@ pub fn main(init: std.process.Init) !void {
         std.log.err("Error deinitializing raw mode: {s}", .{@errorName(e)});
     };
 
-    var ctx = layout.Context.init(allocator);
-    defer ctx.deinit();
-
     // Panel dimensions (modifiable via input)
     var left_width: u16 = 20;
     var left_height: u16 = 8;
@@ -49,44 +46,7 @@ pub fn main(init: std.process.Init) !void {
     var cursor_col: usize = 0;
 
     while (s.running) {
-        ctx.begin();
-
         // Main horizontal container (top padding leaves room for instructions)
-        {
-            ctx.open(.{
-                .direction = .horizontal,
-                .padding = layout.Padding.from(8, 1, 1, 1),
-                .gap = 2,
-            });
-            defer ctx.close();
-
-            // Left panel
-            {
-                ctx.open(.{
-                    .width = .{ .fixed = left_width },
-                    .height = .{ .fixed = left_height },
-                    .border = true,
-                    .color = if (active_panel == .left) .{ 50, 50, 80, 255 } else null,
-                });
-                defer ctx.close();
-                ctx.text("Left Panel");
-            }
-
-            // Right panel
-            {
-                ctx.open(.{
-                    .width = .{ .fixed = right_width },
-                    .height = .{ .fixed = right_height },
-                    .border = true,
-                    .color = if (active_panel == .right) .{ 50, 80, 50, 255 } else null,
-                });
-                defer ctx.close();
-                ctx.text("Right Panel");
-            }
-        }
-
-        const commands = try ctx.end(s.width, s.height);
-        defer allocator.free(commands);
 
         try s.clearScreen();
         try s.home();
@@ -112,11 +72,6 @@ pub fn main(init: std.process.Init) !void {
         try s.print("Size input: " ++ ansi.fg.cyan ++ "{s}" ++ ansi.reset ++ "\r\n\r\n", .{s.textinput.items});
         try s.print(ansi.faint ++ "Type WxH (e.g. 10x5) + Enter to resize active panel\r\n", .{});
         try s.print("Tab to switch panel, q to quit" ++ ansi.reset ++ "\r\n\r\n", .{});
-
-        // Render all layout commands
-        for (commands) |cmd| {
-            try cmd.render(&s);
-        }
 
         // Read input (non-blocking due to termios settings)
         readInput(&s);

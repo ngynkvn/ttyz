@@ -163,14 +163,14 @@ test "vertical layout with lengths" {
         .{ .length = 3 },
     });
     const rect = Rect.sized(80, 24);
-    const result = layout.areas(rect);
+    const a, const b, const c = layout.areas(rect);
 
-    try std.testing.expectEqual(@as(u16, 0), result[0].y);
-    try std.testing.expectEqual(@as(u16, 3), result[0].height);
-    try std.testing.expectEqual(@as(u16, 3), result[1].y);
-    try std.testing.expectEqual(@as(u16, 10), result[1].height);
-    try std.testing.expectEqual(@as(u16, 13), result[2].y);
-    try std.testing.expectEqual(@as(u16, 3), result[2].height);
+    try std.testing.expectEqual(@as(u16, 0), a.y);
+    try std.testing.expectEqual(@as(u16, 3), a.height);
+    try std.testing.expectEqual(@as(u16, 3), b.y);
+    try std.testing.expectEqual(@as(u16, 10), b.height);
+    try std.testing.expectEqual(@as(u16, 13), c.y);
+    try std.testing.expectEqual(@as(u16, 3), c.height);
 }
 
 test "horizontal layout with fill" {

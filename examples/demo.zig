@@ -1,18 +1,26 @@
+//! Comprehensive ttyz demo
+//!
+//! Demonstrates all features using Frame and Layout.
+
 const std = @import("std");
 const ttyz = @import("ttyz");
-const ansi = ttyz.ansi;
-const E = ttyz.E; // Keep for GOTO and format strings
-const termdraw = ttyz.termdraw;
-const text = ttyz.text;
+const fr = ttyz.frame;
+const Frame = ttyz.Frame;
+const Buffer = ttyz.Buffer;
+const Layout = fr.Layout;
+const Color = fr.Color;
+const Rect = fr.Rect;
 
 const Demo = struct {
+    buffer: Buffer,
+    allocator: std.mem.Allocator,
     current_tab: Tab = .overview,
     mouse_pos: struct { row: usize = 0, col: usize = 0 } = .{},
     click_count: usize = 0,
     key_history: [8]u8 = .{' '} ** 8,
     key_idx: usize = 0,
     color_offset: u8 = 0,
-    frame: usize = 0,
+    anim_frame: usize = 0,
 
     const Tab = enum { overview, colors, events, boxes, text_demo };
     const tabs = [_]Tab{ .overview, .colors, .events, .boxes, .text_demo };
@@ -27,19 +35,12 @@ const Demo = struct {
         };
     }
 
-    fn nextTab(self: *Demo) void {
-        const idx = @intFromEnum(self.current_tab);
-        self.current_tab = tabs[(idx + 1) % tabs.len];
+    pub fn init(self: *Demo, screen: *ttyz.Screen) !void {
+        self.buffer = try Buffer.init(self.allocator, screen.width, screen.height);
     }
 
-    fn prevTab(self: *Demo) void {
-        const idx = @intFromEnum(self.current_tab);
-        self.current_tab = tabs[(idx + tabs.len - 1) % tabs.len];
-    }
-
-    fn recordKey(self: *Demo, key: u8) void {
-        self.key_history[self.key_idx] = key;
-        self.key_idx = (self.key_idx + 1) % self.key_history.len;
+    pub fn deinit(self: *Demo) void {
+        self.buffer.deinit();
     }
 
     pub fn handleEvent(self: *Demo, event: ttyz.Event) bool {
@@ -47,11 +48,15 @@ const Demo = struct {
             .key => |key| {
                 switch (key) {
                     .q, .Q, .esc => return false,
-                    .tab => self.nextTab(),
+                    .tab => {
+                        const idx = @intFromEnum(self.current_tab);
+                        self.current_tab = tabs[(idx + 1) % tabs.len];
+                    },
                     else => {
                         const key_val = @intFromEnum(key);
                         if (key_val < 128) {
-                            self.recordKey(@intCast(key_val));
+                            self.key_history[self.key_idx] = @intCast(key_val);
+                            self.key_idx = (self.key_idx + 1) % self.key_history.len;
                         }
                     },
                 }
@@ -69,67 +74,72 @@ const Demo = struct {
         return true;
     }
 
-    pub fn render(self: *Demo, s: *ttyz.Screen) !void {
-        try s.clearScreen();
-        try s.home();
-
-        // Draw header
-        try self.drawHeader(s);
-
-        // Draw tab bar
-        try self.drawTabBar(s);
-
-        // Draw content based on current tab
-        switch (self.current_tab) {
-            .overview => try self.drawOverview(s),
-            .colors => try self.drawColors(s),
-            .events => try self.drawEvents(s),
-            .boxes => try self.drawBoxes(s),
-            .text_demo => try self.drawTextDemo(s),
+    pub fn render(self: *Demo, screen: *ttyz.Screen) !void {
+        if (self.buffer.width != screen.width or self.buffer.height != screen.height) {
+            try self.buffer.resize(screen.width, screen.height);
         }
 
-        // Draw footer
-        try self.drawFooter(s);
+        var f = Frame.init(&self.buffer);
+        f.clear();
 
-        self.frame +%= 1;
-    }
+        // Main layout: header, tabs, content, footer
+        const header, const tab_bar, const content, const footer = f.areas(4, Layout(4).vertical(.{
+            .{ .length = 1 }, // header
+            .{ .length = 2 }, // tabs
+            .{ .fill = 1 }, // content
+            .{ .length = 1 }, // footer
+        }));
 
-    fn drawHeader(self: *Demo, s: *ttyz.Screen) !void {
-        _ = self;
+        // Header
+        f.fillRect(header, .{ .char = ' ', .bg = Color.blue });
         const title = " ttyz Demo ";
-        const padding = (s.width -| @as(u16, @intCast(title.len))) / 2;
+        const title_x = header.x + (header.width -| @as(u16, @intCast(title.len))) / 2;
+        f.setString(title_x, header.y, title, .{ .bold = true }, Color.white, Color.blue);
 
-        try s.print(ansi.bg.blue ++ ansi.fg.white ++ ansi.bold, .{});
+        // Tab bar
+        self.drawTabBar(&f, tab_bar);
 
-        // Fill line with spaces
-        var i: u16 = 0;
-        while (i < s.width) : (i += 1) {
-            try s.print(" ", .{});
+        // Content
+        switch (self.current_tab) {
+            .overview => self.drawOverview(&f, content),
+            .colors => self.drawColors(&f, content),
+            .events => self.drawEvents(&f, content),
+            .boxes => self.drawBoxes(&f, content),
+            .text_demo => self.drawText(&f, content),
         }
 
-        try s.print(E.GOTO, .{ @as(u16, 1), padding });
-        try s.print("{s}" ++ ansi.reset ++ "\r\n", .{title});
+        // Footer
+        f.fillRect(footer, .{ .char = ' ', .bg = Color{ .indexed = 236 } });
+        var buf: [64]u8 = undefined;
+        const footer_text = std.fmt.bufPrint(&buf, " Tab: Switch | Q: Quit | {}x{} | Frame: {}", .{ screen.width, screen.height, self.anim_frame }) catch "";
+        f.setString(footer.x + 1, footer.y, footer_text, .{}, .default, Color{ .indexed = 236 });
+
+        self.anim_frame +%= 1;
+        if (self.anim_frame % 4 == 0) self.color_offset +%= 1;
+
+        try f.render(screen);
     }
 
-    fn drawTabBar(self: *Demo, s: *ttyz.Screen) !void {
-        try s.print(E.GOTO, .{ @as(u16, 3), @as(u16, 1) });
-
+    fn drawTabBar(self: *Demo, f: *Frame, area: Rect) void {
+        var x = area.x + 2;
         for (tabs) |t| {
+            const name = tabName(t);
             const is_active = t == self.current_tab;
             if (is_active) {
-                try s.print(ansi.bg.white ++ ansi.fg.black ++ ansi.bold, .{});
+                f.setString(x, area.y, name, .{ .bold = true }, Color.black, Color.white);
             } else {
-                try s.print(ansi.faint, .{});
+                f.setString(x, area.y, name, .{ .dim = true }, .default, .default);
             }
-            try s.print(" {s} " ++ ansi.reset ++ " ", .{tabName(t)});
+            x += @as(u16, @intCast(name.len)) + 2;
         }
-        try s.print("\r\n", .{});
     }
 
-    fn drawOverview(self: *Demo, s: *ttyz.Screen) !void {
-        const start_row: u16 = 5;
+    fn drawOverview(self: *Demo, f: *Frame, area: Rect) void {
+        const spinners = [_][]const u8{ "|", "/", "-", "\\" };
+        const spinner = spinners[(self.anim_frame / 8) % spinners.len];
 
-        try s.print(E.GOTO ++ ansi.bold ++ "Welcome to ttyz!" ++ ansi.reset ++ "\r\n", .{ start_row, @as(u16, 3) });
+        f.setString(area.x + 3, area.y + 1, spinner, .{}, Color.cyan, .default);
+        f.setString(area.x + 5, area.y + 1, "Welcome to ttyz!", .{ .bold = true }, .default, .default);
 
         const features = [_][]const u8{
             "A Zig library for terminal user interfaces",
@@ -139,257 +149,180 @@ const Demo = struct {
             "  * Keyboard, mouse, and focus events",
             "  * Box drawing with Unicode characters",
             "  * 16, 256, and true color support",
-            "  * Text utilities (padding, centering)",
-            "  * Immediate-mode layout engine",
+            "  * Frame-based rendering with Layout",
             "  * Kitty graphics protocol support",
             "",
             "Navigation:",
-            "  Tab / Shift+Tab  - Switch tabs",
-            "  Arrow keys       - Navigate",
-            "  q / Esc          - Quit",
+            "  Tab        - Switch tabs",
+            "  Q / Esc    - Quit",
         };
 
         for (features, 0..) |line, i| {
-            try s.print(E.GOTO ++ "{s}\r\n", .{ start_row + 2 + @as(u16, @intCast(i)), @as(u16, 5), line });
-        }
-
-        // Animated spinner
-        const spinners = [_][]const u8{ "|", "/", "-", "\\" };
-        const spinner = spinners[(self.frame / 8) % spinners.len];
-        try s.print(E.GOTO ++ ansi.fg.cyan ++ "{s}" ++ ansi.reset, .{ start_row + 2, @as(u16, 3), spinner });
-    }
-
-    fn drawColors(self: *Demo, s: *ttyz.Screen) !void {
-        const start_row: u16 = 5;
-
-        // 16 basic colors
-        try s.print(E.GOTO ++ ansi.bold ++ "16 Basic Colors:" ++ ansi.reset ++ "\r\n", .{ start_row, @as(u16, 3) });
-
-        try s.print(E.GOTO, .{ start_row + 1, @as(u16, 3) });
-        const bg_colors = [_][]const u8{ ansi.bg.black, ansi.bg.red, ansi.bg.green, ansi.bg.yellow, ansi.bg.blue, ansi.bg.magenta, ansi.bg.cyan, ansi.bg.white };
-
-        for (bg_colors) |bg| {
-            try s.print("{s}  " ++ ansi.reset, .{bg});
-        }
-        try s.print("  Normal\r\n", .{});
-
-        try s.print(E.GOTO, .{ start_row + 2, @as(u16, 3) });
-        const bright_bg = [_][]const u8{ ansi.bg.bright_black, ansi.bg.bright_red, ansi.bg.bright_green, ansi.bg.bright_yellow, ansi.bg.bright_blue, ansi.bg.bright_magenta, ansi.bg.bright_cyan, ansi.bg.bright_white };
-        for (bright_bg) |bg| {
-            try s.print("{s}  " ++ ansi.reset, .{bg});
-        }
-        try s.print("  Bright\r\n", .{});
-
-        // 256 color palette
-        try s.print(E.GOTO ++ ansi.bold ++ "\r\n256 Color Palette:" ++ ansi.reset ++ "\r\n", .{ start_row + 4, @as(u16, 3) });
-
-        // Standard colors (0-15)
-        try s.print(E.GOTO, .{ start_row + 5, @as(u16, 3) });
-        var c: u8 = 0;
-        while (c < 16) : (c += 1) {
-            const color = (c +% self.color_offset) % 16;
-            try s.print(E.SET_BG_256 ++ " " ++ E.RESET_STYLE, .{color});
-        }
-
-        // 216 colors (16-231) - show a slice
-        try s.print(E.GOTO, .{ start_row + 6, @as(u16, 3) });
-        c = 16;
-        const offset = self.color_offset % 36;
-        while (c < 16 + 36) : (c += 1) {
-            const color = 16 + ((c - 16 + offset) % 216);
-            try s.print(E.SET_BG_256 ++ " " ++ E.RESET_STYLE, .{color});
-        }
-
-        // Grayscale (232-255)
-        try s.print(E.GOTO, .{ start_row + 7, @as(u16, 3) });
-        for (232..256) |gray| {
-            try s.print(E.SET_BG_256 ++ " " ++ E.RESET_STYLE, .{gray});
-        }
-
-        // True color gradient
-        try s.print(E.GOTO ++ ansi.bold ++ "\r\nTrue Color (24-bit):" ++ ansi.reset ++ "\r\n", .{ start_row + 9, @as(u16, 3) });
-
-        try s.print(E.GOTO, .{ start_row + 10, @as(u16, 3) });
-        var x: u8 = 0;
-        while (x < 64) : (x += 1) {
-            const r = x * 4;
-            const g: u8 = 128;
-            const b = 255 - x * 4;
-            try s.print(E.SET_TRUCOLOR_BG ++ " " ++ E.RESET_STYLE, .{ r, g, b });
-        }
-
-        // Text styles
-        try s.print(E.GOTO ++ ansi.bold ++ "\r\nText Styles:" ++ ansi.reset ++ "\r\n", .{ start_row + 12, @as(u16, 3) });
-        try s.print(E.GOTO, .{ start_row + 13, @as(u16, 3) });
-        try s.print(ansi.bold ++ "Bold" ++ ansi.reset ++ "  ", .{});
-        try s.print(ansi.faint ++ "Dim" ++ ansi.reset ++ "  ", .{});
-        try s.print(ansi.italic ++ "Italic" ++ ansi.reset ++ "  ", .{});
-        try s.print(ansi.underline ++ "Underline" ++ ansi.reset ++ "  ", .{});
-        try s.print(ansi.reverse ++ "Reverse" ++ ansi.reset ++ "  ", .{});
-        try s.print(ansi.crossed_out ++ "Strike" ++ ansi.reset, .{});
-
-        // Animate color offset
-        if (self.frame % 4 == 0) {
-            self.color_offset +%= 1;
+            f.setString(area.x + 5, area.y + 3 + @as(u16, @intCast(i)), line, .{}, .default, .default);
         }
     }
 
-    fn drawEvents(self: *Demo, s: *ttyz.Screen) !void {
-        const start_row: u16 = 5;
+    fn drawColors(self: *Demo, f: *Frame, area: Rect) void {
+        // 16 colors
+        f.setString(area.x + 3, area.y + 1, "16 Basic Colors:", .{ .bold = true }, .default, .default);
+        var x = area.x + 3;
+        for (0..8) |i| {
+            const c: u8 = @intCast(i);
+            f.buffer.set(x, area.y + 2, .{ .char = ' ', .bg = Color{ .indexed = c } });
+            f.buffer.set(x + 1, area.y + 2, .{ .char = ' ', .bg = Color{ .indexed = c } });
+            x += 2;
+        }
+        x = area.x + 3;
+        for (8..16) |i| {
+            const c: u8 = @intCast(i);
+            f.buffer.set(x, area.y + 3, .{ .char = ' ', .bg = Color{ .indexed = c } });
+            f.buffer.set(x + 1, area.y + 3, .{ .char = ' ', .bg = Color{ .indexed = c } });
+            x += 2;
+        }
 
-        try s.print(E.GOTO ++ ansi.bold ++ "Event Tracking:" ++ ansi.reset ++ "\r\n", .{ start_row, @as(u16, 3) });
+        // 256 colors
+        f.setString(area.x + 3, area.y + 5, "256 Color Palette:", .{ .bold = true }, .default, .default);
+        x = area.x + 3;
+        for (0..36) |i| {
+            const c: u8 = @intCast(16 + ((i + self.color_offset) % 216));
+            f.buffer.set(x, area.y + 6, .{ .char = ' ', .bg = Color{ .indexed = c } });
+            x += 1;
+        }
+        x = area.x + 3;
+        for (232..256) |i| {
+            f.buffer.set(x, area.y + 7, .{ .char = ' ', .bg = Color{ .indexed = @intCast(i) } });
+            x += 1;
+        }
 
-        // Mouse position
-        try s.print(E.GOTO ++ "Mouse Position: " ++ ansi.fg.green ++ "({}, {})" ++ ansi.reset ++ "    \r\n", .{ start_row + 2, @as(u16, 5), self.mouse_pos.row, self.mouse_pos.col });
+        // True color
+        f.setString(area.x + 3, area.y + 9, "True Color:", .{ .bold = true }, .default, .default);
+        x = area.x + 3;
+        for (0..36) |i| {
+            const hue = @as(f32, @floatFromInt(i)) / 36.0;
+            const rgb = hsvToRgb(hue, 1.0, 1.0);
+            f.buffer.set(x, area.y + 10, .{ .char = ' ', .bg = Color{ .rgb = .{ .r = rgb[0], .g = rgb[1], .b = rgb[2] } } });
+            x += 1;
+        }
 
-        // Click count
-        try s.print(E.GOTO ++ "Click Count:    " ++ ansi.fg.yellow ++ "{}" ++ ansi.reset ++ "    \r\n", .{ start_row + 3, @as(u16, 5), self.click_count });
+        // Styles
+        f.setString(area.x + 3, area.y + 12, "Styles:", .{ .bold = true }, .default, .default);
+        x = area.x + 3;
+        f.setString(x, area.y + 13, "Bold", .{ .bold = true }, .default, .default);
+        x += 6;
+        f.setString(x, area.y + 13, "Dim", .{ .dim = true }, .default, .default);
+        x += 5;
+        f.setString(x, area.y + 13, "Italic", .{ .italic = true }, .default, .default);
+        x += 8;
+        f.setString(x, area.y + 13, "Underline", .{ .underline = true }, .default, .default);
+        x += 11;
+        f.setString(x, area.y + 13, "Reverse", .{ .reverse = true }, .default, .default);
+    }
 
-        // Key history
-        try s.print(E.GOTO ++ "Recent Keys:    " ++ ansi.fg.cyan, .{ start_row + 4, @as(u16, 5) });
+    fn drawEvents(self: *Demo, f: *Frame, area: Rect) void {
+        f.setString(area.x + 3, area.y + 1, "Event Tracking:", .{ .bold = true }, .default, .default);
+
+        var buf: [64]u8 = undefined;
+        const mouse_str = std.fmt.bufPrint(&buf, "({}, {})", .{ self.mouse_pos.row, self.mouse_pos.col }) catch "?";
+        f.setString(area.x + 5, area.y + 3, "Mouse Position:", .{}, .default, .default);
+        f.setString(area.x + 22, area.y + 3, mouse_str, .{}, Color.green, .default);
+
+        const click_str = std.fmt.bufPrint(&buf, "{}", .{self.click_count}) catch "?";
+        f.setString(area.x + 5, area.y + 4, "Click Count:", .{}, .default, .default);
+        f.setString(area.x + 22, area.y + 4, click_str, .{}, Color.yellow, .default);
+
+        f.setString(area.x + 5, area.y + 5, "Recent Keys:", .{}, .default, .default);
+        var x = area.x + 22;
         for (self.key_history) |k| {
             if (std.ascii.isPrint(k)) {
-                try s.print("[{c}] ", .{k});
-            } else {
-                try s.print("[?] ", .{});
+                f.buffer.set(x, area.y + 5, .{ .char = '[', .fg = Color.cyan });
+                f.buffer.set(x + 1, area.y + 5, .{ .char = k, .fg = Color.cyan });
+                f.buffer.set(x + 2, area.y + 5, .{ .char = ']', .fg = Color.cyan });
             }
+            x += 4;
         }
-        try s.print(ansi.reset ++ "\r\n", .{});
 
-        // Instructions
-        try s.print(E.GOTO ++ ansi.faint ++ "Move your mouse, click, and press keys to see events" ++ ansi.reset, .{ start_row + 6, @as(u16, 5) });
+        // Button
+        const btn_x = area.x + 10;
+        const btn_y = area.y + 8;
+        f.fillRect(Rect{ .x = btn_x, .y = btn_y, .width = 12, .height = 1 }, .{ .char = ' ', .bg = Color.blue });
+        f.setString(btn_x + 1, btn_y, "Click Me!", .{ .bold = true }, Color.white, Color.blue);
 
-        // Draw clickable button
-        const btn_row = start_row + 9;
-        const btn_col: u16 = 10;
-        try s.print(E.GOTO ++ ansi.bg.blue ++ ansi.fg.white ++ " Click Me! " ++ ansi.reset, .{ btn_row, btn_col });
-
-        // Show if mouse is over button
-        if (self.mouse_pos.row == btn_row and self.mouse_pos.col >= btn_col and self.mouse_pos.col < btn_col + 12) {
-            try s.print(E.GOTO ++ ansi.fg.green ++ " <-- Hovering!" ++ ansi.reset, .{ btn_row, btn_col + 12 });
+        if (self.mouse_pos.row == btn_y and self.mouse_pos.col >= btn_x and self.mouse_pos.col < btn_x + 12) {
+            f.setString(btn_x + 13, btn_y, "<- Hovering!", .{}, Color.green, .default);
         }
     }
 
-    fn drawBoxes(self: *Demo, s: *ttyz.Screen) !void {
+    fn drawBoxes(self: *Demo, f: *Frame, area: Rect) void {
         _ = self;
+        // Draw boxes using layout
+        const cols = Layout(3).horizontal(.{
+            .{ .fill = 1 },
+            .{ .fill = 1 },
+            .{ .fill = 1 },
+        }).withSpacing(2).areas(area.inner(2));
 
-        // Draw several boxes
-        try termdraw.box(&s.writer.interface, .{
-            .x = 3,
-            .y = 5,
-            .width = 20,
-            .height = 8,
-            .color = .{ 255, 100, 100, 255 },
-        });
+        f.drawRectStyled(Rect{ .x = cols[0].x, .y = cols[0].y, .width = @min(cols[0].width, 18), .height = 7 }, .single, .{}, Color.red, .default);
+        f.setString(cols[0].x + 2, cols[0].y + 3, "Single", .{}, Color.red, .default);
 
-        try termdraw.box(&s.writer.interface, .{
-            .x = 25,
-            .y = 5,
-            .width = 20,
-            .height = 8,
-            .color = .{ 100, 255, 100, 255 },
-        });
+        f.drawRectStyled(Rect{ .x = cols[1].x, .y = cols[1].y, .width = @min(cols[1].width, 18), .height = 7 }, .double, .{}, Color.green, .default);
+        f.setString(cols[1].x + 2, cols[1].y + 3, "Double", .{}, Color.green, .default);
 
-        try termdraw.box(&s.writer.interface, .{
-            .x = 47,
-            .y = 5,
-            .width = 20,
-            .height = 8,
-            .color = .{ 100, 100, 255, 255 },
-        });
-
-        // Labels inside boxes
-        try s.print(E.GOTO ++ ansi.fg.red ++ "Red Box" ++ ansi.reset, .{ @as(u16, 8), @as(u16, 9) });
-        try s.print(E.GOTO ++ ansi.fg.green ++ "Green Box" ++ ansi.reset, .{ @as(u16, 8), @as(u16, 30) });
-        try s.print(E.GOTO ++ ansi.fg.blue ++ "Blue Box" ++ ansi.reset, .{ @as(u16, 8), @as(u16, 53) });
+        f.drawRectStyled(Rect{ .x = cols[2].x, .y = cols[2].y, .width = @min(cols[2].width, 18), .height = 7 }, .rounded, .{}, Color.blue, .default);
+        f.setString(cols[2].x + 2, cols[2].y + 3, "Rounded", .{}, Color.blue, .default);
 
         // Nested box
-        try termdraw.box(&s.writer.interface, .{
-            .x = 3,
-            .y = 14,
-            .width = 30,
-            .height = 6,
-            .color = .{ 255, 255, 0, 255 },
-        });
-
-        try termdraw.box(&s.writer.interface, .{
-            .x = 5,
-            .y = 15,
-            .width = 26,
-            .height = 4,
-            .color = .{ 255, 128, 0, 255 },
-        });
-
-        try s.print(E.GOTO ++ "Nested boxes!", .{ @as(u16, 16), @as(u16, 10) });
-
-        // Horizontal and vertical lines
-        try termdraw.hline(&s.writer.interface, .{ .x = 40, .y = 14, .width = 25 });
-        try termdraw.vline(&s.writer.interface, .{ .x = 52, .y = 14, .height = 6 });
-
-        try s.print(E.GOTO ++ "Lines", .{ @as(u16, 15), @as(u16, 54) });
+        const nested_y = cols[0].y + 8;
+        f.drawRectStyled(Rect{ .x = area.x + 3, .y = nested_y, .width = 30, .height = 5 }, .thick, .{}, Color.yellow, .default);
+        f.drawRectStyled(Rect{ .x = area.x + 5, .y = nested_y + 1, .width = 26, .height = 3 }, .single, .{}, Color.magenta, .default);
+        f.setString(area.x + 8, nested_y + 2, "Nested boxes!", .{}, .default, .default);
     }
 
-    fn drawTextDemo(self: *Demo, s: *ttyz.Screen) !void {
+    fn drawText(self: *Demo, f: *Frame, area: Rect) void {
         _ = self;
-        const start_row: u16 = 5;
+        f.setString(area.x + 3, area.y + 1, "Text Rendering:", .{ .bold = true }, .default, .default);
 
-        try s.print(E.GOTO ++ ansi.bold ++ "Text Utilities:" ++ ansi.reset ++ "\r\n", .{ start_row, @as(u16, 3) });
+        // Unicode
+        f.setString(area.x + 5, area.y + 3, "Unicode:", .{}, .default, .default);
+        f.setString(area.x + 15, area.y + 3, "\u{2764} \u{2605} \u{2603} \u{2602} \u{263A}", .{}, Color.red, .default);
 
-        // Padding demo
-        var buf: [40]u8 = undefined;
+        // Box drawing
+        f.setString(area.x + 5, area.y + 5, "Box chars:", .{}, .default, .default);
+        f.setString(area.x + 15, area.y + 5, "\u{250C}\u{2500}\u{2510} \u{2554}\u{2550}\u{2557} \u{256D}\u{2500}\u{256E}", .{}, Color.cyan, .default);
 
-        try s.print(E.GOTO ++ "padRight(\"Hello\", 20):", .{ start_row + 2, @as(u16, 3) });
-        const padded_right = text.padRight("Hello", 20, &buf);
-        try s.print(E.GOTO ++ ansi.bg.bright_black ++ "{s}" ++ ansi.reset ++ "|", .{ start_row + 2, @as(u16, 28), padded_right });
+        // Blocks
+        f.setString(area.x + 5, area.y + 7, "Blocks:", .{}, .default, .default);
+        f.setString(area.x + 15, area.y + 7, "\u{2588}\u{2589}\u{258A}\u{258B}\u{258C}\u{258D}\u{258E}\u{258F}", .{}, Color.green, .default);
 
-        try s.print(E.GOTO ++ "padLeft(\"Hello\", 20):", .{ start_row + 3, @as(u16, 3) });
-        const padded_left = text.padLeft("Hello", 20, &buf);
-        try s.print(E.GOTO ++ "|" ++ ansi.bg.bright_black ++ "{s}" ++ ansi.reset, .{ start_row + 3, @as(u16, 27), padded_left });
-
-        // Display width
-        try s.print(E.GOTO ++ "displayWidth(\"Hello\"):  {}", .{ start_row + 5, @as(u16, 3), text.displayWidth("Hello") });
-        try s.print(E.GOTO ++ "displayWidth(\"\"): {}", .{ start_row + 6, @as(u16, 3), text.displayWidth("") });
-
-        // Repeat
-        try s.print(E.GOTO ++ "repeat('-', 30):", .{ start_row + 8, @as(u16, 3) });
-        const repeated = text.repeat('-', 30, &buf);
-        try s.print(E.GOTO ++ ansi.fg.cyan ++ "{s}" ++ ansi.reset, .{ start_row + 8, @as(u16, 22), repeated });
-
-        // Colorz demo
-        try s.print(E.GOTO ++ ansi.bold ++ "\r\nColorz Format Strings:" ++ ansi.reset, .{ start_row + 10, @as(u16, 3) });
-
-        var clr = ttyz.colorz.wrap(&s.writer.interface);
-        try s.print(E.GOTO, .{ start_row + 11, @as(u16, 3) });
-        try clr.print("@[.green]Success@[.reset]: @[.bold]Operation complete@[.reset]", .{});
-
-        try s.print(E.GOTO, .{ start_row + 12, @as(u16, 3) });
-        try clr.print("@[.red]Error@[.reset]: @[.dim]Something went wrong@[.reset]", .{});
-
-        try s.print(E.GOTO, .{ start_row + 13, @as(u16, 3) });
-        try clr.print("@[.yellow]Warning@[.reset]: @[.cyan]Check your input@[.reset]", .{});
-    }
-
-    fn drawFooter(self: *Demo, s: *ttyz.Screen) !void {
-        const footer_row = s.height;
-
-        try s.print(E.GOTO ++ ansi.bg.bright_black ++ ansi.fg.white, .{ footer_row, @as(u16, 1) });
-
-        // Fill line
-        var i: u16 = 0;
-        while (i < s.width) : (i += 1) {
-            try s.print(" ", .{});
-        }
-
-        try s.print(E.GOTO ++ " Tab: Switch | q: Quit | Screen: {}x{} | Frame: {} ", .{ footer_row, @as(u16, 1), s.width, s.height, self.frame });
-        try s.print(ansi.reset, .{});
+        // Braille
+        f.setString(area.x + 5, area.y + 9, "Braille:", .{}, .default, .default);
+        f.setString(area.x + 15, area.y + 9, "\u{2801}\u{2803}\u{2807}\u{280F}\u{281F}\u{283F}\u{287F}\u{28FF}", .{}, Color.yellow, .default);
     }
 };
 
-pub fn main(init: std.process.Init) !void {
-    var demo = Demo{};
-    try ttyz.Runner(Demo).run(&demo, init);
+fn hsvToRgb(h: f32, s: f32, v: f32) [3]u8 {
+    const i_val = @as(u32, @intFromFloat(h * 6));
+    const f = h * 6 - @as(f32, @floatFromInt(i_val));
+    const p = v * (1 - s);
+    const q = v * (1 - f * s);
+    const t = v * (1 - (1 - f) * s);
+
+    const rgb: [3]f32 = switch (i_val % 6) {
+        0 => .{ v, t, p },
+        1 => .{ q, v, p },
+        2 => .{ p, v, t },
+        3 => .{ p, q, v },
+        4 => .{ t, p, v },
+        else => .{ v, p, q },
+    };
+
+    return .{
+        @intFromFloat(rgb[0] * 255),
+        @intFromFloat(rgb[1] * 255),
+        @intFromFloat(rgb[2] * 255),
+    };
 }
 
-pub const std_options: std.Options = .{
-    .log_level = .info,
-};
+pub fn main(init: std.process.Init) !void {
+    var app = Demo{ .buffer = undefined, .allocator = init.gpa };
+    try ttyz.Runner(Demo).run(&app, init);
+}

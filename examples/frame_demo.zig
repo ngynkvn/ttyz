@@ -66,14 +66,11 @@ const App = struct {
         f.clear();
 
         // Use Layout to split into header, content, and footer
-        const main_areas = f.areas(3, Layout(3).vertical(.{
+        const header, const content, const footer = f.areas(3, Layout(3).vertical(.{
             .{ .length = 3 }, // header
             .{ .fill = 1 }, // content
             .{ .length = 1 }, // footer
         }));
-        const header = main_areas[0];
-        const content = main_areas[1];
-        const footer = main_areas[2];
 
         // Draw header with title
         f.drawRectStyled(header, .double, .{}, Color.cyan, .default);
@@ -83,20 +80,19 @@ const App = struct {
         f.setString(header.x + 2, header.y + 1, "Use arrow keys to change border style, Q to quit", .{}, .default, .default);
 
         // Split content into top (border showcase) and bottom (demos)
-        const content_areas = Layout(2).vertical(.{
+        const showcase_area, const demo_area = Layout(2).vertical(.{
             .{ .length = 8 }, // border showcase
             .{ .fill = 1 }, // demos
         }).areas(content);
-        const showcase_area = content_areas[0];
-        const demo_area = content_areas[1];
 
         // Draw border style showcase using horizontal layout
-        const showcase_cols = Layout(4).horizontal(.{
+        const col0, const col1, const col2, const col3 = Layout(4).horizontal(.{
             .{ .fill = 1 },
             .{ .fill = 1 },
             .{ .fill = 1 },
             .{ .fill = 1 },
         }).withSpacing(2).areas(showcase_area.inner(1));
+        const showcase_cols = [_]Rect{ col0, col1, col2, col3 };
 
         for (border_styles, 0..) |style, i| {
             const col = showcase_cols[i];
@@ -117,12 +113,10 @@ const App = struct {
         }
 
         // Split demo area into left (styles) and right (colors)
-        const demo_cols = Layout(2).horizontal(.{
+        const style_area, const color_area = Layout(2).horizontal(.{
             .{ .fill = 1 },
             .{ .fill = 1 },
         }).withSpacing(2).areas(demo_area);
-        const style_area = demo_cols[0];
-        const color_area = demo_cols[1];
 
         // Style demo box
         f.drawRect(style_area, border_styles[self.selected_border]);

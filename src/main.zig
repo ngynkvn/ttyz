@@ -152,6 +152,9 @@ pub fn main() !void {
                     _ = mouse;
                     // try s.print("{}\n", .{mouse});
                 },
+                .focus => |focused| {
+                    std.log.info("focus changed: {}", .{focused});
+                },
                 .interrupt => s.running = false,
             }
         }

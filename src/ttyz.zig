@@ -9,6 +9,7 @@ pub const draw = @import("draw.zig");
 pub const termdraw = @import("termdraw.zig");
 pub const layout = @import("layout.zig");
 pub const colorz = @import("colorz.zig");
+pub const text = @import("text.zig");
 pub const E = @import("esc.zig");
 pub const BoundedQueue = @import("bounded_queue.zig").BoundedQueue;
 
@@ -255,25 +256,37 @@ pub const Event = union(enum) {
         backspace = 8, tab = 9,
         enter = 10, esc = 27,
         carriage_return = 13,
+        space = 32,
 
-        arrow_up, arrow_down,
-        arrow_right, arrow_left,
+        // Arrow keys (values chosen to not conflict with ASCII)
+        arrow_up = 128, arrow_down = 129,
+        arrow_right = 130, arrow_left = 131,
 
-        @"0" = 48, @"1" = 49, @"2" = 50, 
-        @"3" = 51, @"4" = 52, @"5" = 53, 
-        @"6" = 54, @"7" = 55, @"8" = 56, 
+        // Navigation keys
+        home = 132, end = 133,
+        page_up = 134, page_down = 135,
+        insert = 136, delete = 137,
+
+        // Function keys
+        f1 = 140, f2 = 141, f3 = 142, f4 = 143,
+        f5 = 144, f6 = 145, f7 = 146, f8 = 147,
+        f9 = 148, f10 = 149, f11 = 150, f12 = 151,
+
+        @"0" = 48, @"1" = 49, @"2" = 50,
+        @"3" = 51, @"4" = 52, @"5" = 53,
+        @"6" = 54, @"7" = 55, @"8" = 56,
         @"9" = 57,
 
-        A = 65, B = 66, C = 67, D = 68, E = 69, F = 70, G = 71, H = 72, 
-        I = 73, J = 74, K = 75, L = 76, M = 77, N = 78, O = 79, P = 80, 
+        A = 65, B = 66, C = 67, D = 68, E = 69, F = 70, G = 71, H = 72,
+        I = 73, J = 74, K = 75, L = 76, M = 77, N = 78, O = 79, P = 80,
         Q = 81, R = 82, S = 83, T = 84, U = 85, V = 86, W = 87, X = 88, Y = 89, Z = 90,
 
-        a = 97, b = 98, c = 99, d = 100, e = 101, f = 102, g = 103, h = 104, 
-        i = 105, j = 106, k = 107, l = 108, m = 109, n = 110, o = 111, p = 112, 
+        a = 97, b = 98, c = 99, d = 100, e = 101, f = 102, g = 103, h = 104,
+        i = 105, j = 106, k = 107, l = 108, m = 109, n = 110, o = 111, p = 112,
         q = 113, r = 114, s = 115, t = 116, u = 117, v = 118, w = 119, x = 120, y = 121, z = 122,
         // zig fmt: on
         _,
-        fn arrow(c: u8) Key {
+        pub fn arrow(c: u8) Key {
             return switch (c) {
                 'A' => .arrow_up,
                 'B' => .arrow_down,
@@ -282,14 +295,44 @@ pub const Event = union(enum) {
                 else => unreachable,
             };
         }
+
+        /// Parse CSI sequence number to navigation/function key
+        pub fn fromCsiNum(num: u8, suffix: u8) ?Key {
+            // CSI sequences: ESC [ <num> ~
+            if (suffix == '~') {
+                return switch (num) {
+                    1 => .home,
+                    2 => .insert,
+                    3 => .delete,
+                    4 => .end,
+                    5 => .page_up,
+                    6 => .page_down,
+                    11 => .f1,
+                    12 => .f2,
+                    13 => .f3,
+                    14 => .f4,
+                    15 => .f5,
+                    17 => .f6,
+                    18 => .f7,
+                    19 => .f8,
+                    20 => .f9,
+                    21 => .f10,
+                    23 => .f11,
+                    24 => .f12,
+                    else => null,
+                };
+            }
+            return null;
+        }
     };
-    pub const MouseButton = enum { left, middle, right, unknown };
-    pub const MouseButtonState = enum { pressed, released, unknown };
+    pub const MouseButton = enum { left, middle, right, scroll_up, scroll_down, unknown };
+    pub const MouseButtonState = enum { pressed, released, motion, unknown };
     pub const CursorPos = struct { row: usize, col: usize };
     pub const Mouse = struct { button: MouseButton, row: usize, col: usize, button_state: MouseButtonState };
     key: Key,
     cursor_pos: CursorPos,
     mouse: Mouse,
+    focus: bool,
     interrupt: void,
 };
 

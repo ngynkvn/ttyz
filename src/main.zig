@@ -14,10 +14,11 @@ pub fn main() !void {
             E.CLEAR_SCREEN ++
                 E.HOME ++
                 "Hello, world!\n" ++
+                "Size: {}x{}\n" ++
                 "{?}\n",
-            .{last_event},
+            .{ s.width, s.height, last_event },
         );
-        try s.query();
+        try s.queryPos();
         while (s.pollEvent()) |event| {
             switch (event) {
                 .key => |key| {
@@ -29,6 +30,9 @@ pub fn main() !void {
                 },
                 .cursor_pos => |cursor_pos| {
                     try s.print("{}\n", .{cursor_pos});
+                },
+                .interrupt => {
+                    s.running = false;
                 },
             }
         }

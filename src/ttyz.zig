@@ -108,22 +108,12 @@ pub const Screen = struct {
         const rc = system.tcsetattr(tty.handle, .FLUSH, &raw);
         if (posix.errno(rc) != .SUCCESS) return error.CouldNotSetTermiosFlags;
 
-        // IOCGWINSZ (io control get window size (?)) is a request signal for window size
-        var ws: posix.winsize = .{ .row = 0, .col = 0, .xpixel = 0, .ypixel = 0 };
-        // Get the window size via ioctl(2) call to tty
-        const result = system.ioctl(tty.handle, posix.T.IOCGWINSZ, @intFromPtr(&ws));
-        if (posix.errno(result) != .SUCCESS) return error.IoctlReturnedNonZero;
-
-        const width = ws.col;
-        const height = ws.row;
-        std.log.debug("windowsize is {}x{}; xpixel={d}, ypixel={d}", .{ width, height, ws.xpixel, ws.ypixel });
-        _ = try tty.write(CONFIG.START_SEQUENCE);
         var self: Screen = undefined;
         self = .{
             .tty = tty,
             .running = true,
-            .width = width,
-            .height = height,
+            .width = 0,
+            .height = 0,
             .last_read = &.{},
             // writer
             .lock = .{},
@@ -135,6 +125,12 @@ pub const Screen = struct {
             .event_buffer = undefined,
             .event_queue = std.ArrayList(Event).initBuffer(&self.event_buffer),
         };
+        const ws = try self.querySize();
+        self.width = ws.col;
+        self.height = ws.row;
+        std.log.debug("windowsize is {}x{}; xpixel={d}, ypixel={d}", .{ self.width, self.height, ws.xpixel, ws.ypixel });
+
+        _ = try tty.write(CONFIG.START_SEQUENCE);
         return self;
     }
 
@@ -150,7 +146,34 @@ pub const Screen = struct {
         return posix.errno(rc);
     }
 
+    const Signals = struct {
+        var WINCH: bool = false;
+        var INTERRUPT: bool = false;
+        pub const Signal = enum(c_int) {
+            WINCH = std.posix.SIG.WINCH,
+            INTERRUPT = std.posix.SIG.INT,
+            _,
+        };
+        fn handleSignals(sig: c_int) callconv(.c) void {
+            switch (@as(Signal, @enumFromInt(sig))) {
+                .WINCH => {
+                    std.log.info("window resized", .{});
+                    @atomicStore(bool, &Signals.WINCH, true, .monotonic);
+                },
+                else => {
+                    std.log.err("received unexpected signal: {d}", .{sig});
+                },
+            }
+        }
+    };
+
     pub fn start(self: *Screen) !void {
+        const sa = std.posix.Sigaction{
+            .flags = std.posix.SA.RESTART,
+            .mask = std.posix.sigemptyset(),
+            .handler = .{ .handler = Signals.handleSignals },
+        };
+        std.posix.sigaction(std.posix.SIG.WINCH, &sa, null);
         self.io_thread = std.Thread.spawn(.{}, Screen.ioLoop, .{self}) catch |e| {
             std.log.err("error spawning main loop: {s}", .{@errorName(e)});
             return e;
@@ -159,6 +182,12 @@ pub const Screen = struct {
 
     pub fn ioLoop(self: *Screen) !void {
         while (self.running) {
+            if (Signals.WINCH) {
+                const ws = try self.querySize();
+                self.width = ws.col;
+                self.height = ws.row;
+                @atomicStore(bool, &Signals.WINCH, false, .monotonic);
+            }
             const n = self.read(&self.input_buffer) catch continue;
             self.last_read = self.input_buffer[0..n];
             self.collectEvents(self.input_buffer[0..n]);
@@ -251,10 +280,20 @@ pub const Screen = struct {
         try self.print(E.GOTO, .{ r, c });
     }
 
-    pub fn query(self: *Screen) !void {
+    pub fn queryPos(self: *Screen) !void {
         self.lock.lock();
         defer self.lock.unlock();
         _ = try self.tty.write(E.REPORT_CURSOR_POS);
+    }
+    pub fn querySize(self: *Screen) !posix.winsize {
+        self.lock.lock();
+        defer self.lock.unlock();
+        // IOCGWINSZ (io control get window size (?)) is a request signal for window size
+        var ws: posix.winsize = .{ .row = 0, .col = 0, .xpixel = 0, .ypixel = 0 };
+        // Get the window size via ioctl(2) call to tty
+        const result = system.ioctl(self.tty.handle, posix.T.IOCGWINSZ, @intFromPtr(&ws));
+        if (posix.errno(result) != .SUCCESS) return error.IoctlReturnedNonZero;
+        return ws;
     }
 
     /// read input
@@ -330,6 +369,7 @@ pub const Event = union(enum) {
     pub const CursorPos = struct { row: usize, col: usize };
     key: Key,
     cursor_pos: CursorPos,
+    interrupt: void,
 };
 
 pub const panic = std.debug.FullPanic(panicTty);

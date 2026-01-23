@@ -33,6 +33,21 @@ pub const TermDraw = struct {
         _ = try w.writeSplat(&.{horiz}, o.width -| 1);
         try w.writeAll(ul);
     }
+
+    const HLineOptions = struct { x: u16, y: u16, width: u16 };
+    pub fn hline(w: *std.io.Writer, o: HLineOptions) !void {
+        try w.print(E.GOTO, .{ o.y, o.x });
+        _ = try w.writeSplat(&.{horiz}, o.width);
+    }
+
+    const VLineOptions = struct { x: u16, y: u16, height: u16 };
+    pub fn vline(w: *std.io.Writer, o: VLineOptions) !void {
+        try w.print(E.GOTO, .{ o.y, o.x });
+        for (0..o.height) |i| {
+            try w.print(E.GOTO, .{ o.y + i, o.x });
+            try w.writeAll(vert);
+        }
+    }
 };
 
 const BoxChars = struct {

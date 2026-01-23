@@ -55,6 +55,7 @@ pub const E = struct {
     /// set true color (rgb)
     pub const SET_TRUCOLOR_BG    = ESC ++ "[48;2;{};{};{}m";
     pub const RESET_COLORS       = ESC ++ "[m";
+    
 };
 const cc = std.ascii.control_code;
 // zig fmt: on

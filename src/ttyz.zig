@@ -62,6 +62,9 @@ pub const TestBackend = screen.TestBackend;
 pub const panic = screen.panic;
 pub const panicTty = screen.panicTty;
 pub const queryHandleSize = screen.queryHandleSize;
+/// Test utilities for capturing terminal output.
+pub const test_capture = @import("test_capture.zig");
+pub const TestCapture = test_capture.TestCapture;
 /// Box drawing with Unicode characters.
 pub const termdraw = @import("termdraw.zig");
 /// Text utilities for padding, centering, and display width.

@@ -16,6 +16,12 @@ pub const BorderChars = types.BorderChars;
 pub const Rect = @import("frame/rect.zig").Rect;
 pub const Buffer = @import("frame/buffer.zig").Buffer;
 
+// Layout types
+pub const layout = @import("frame/layout.zig");
+pub const Layout = layout.Layout;
+pub const Direction = layout.Direction;
+pub const Constraint = layout.Constraint;
+
 /// Drawing context wrapping a Buffer.
 pub const Frame = struct {
     buffer: *Buffer,
@@ -26,6 +32,21 @@ pub const Frame = struct {
 
     pub fn area(self: Frame) Rect {
         return self.buffer.area();
+    }
+
+    /// Split the frame's area using a layout with N constraints.
+    /// Returns N rectangles based on the layout direction and constraints.
+    ///
+    /// Example:
+    /// ```
+    /// const areas = frame.areas(Layout(3).vertical(.{
+    ///     .{ .length = 3 },      // header
+    ///     .{ .fill = 1 },        // content
+    ///     .{ .length = 1 },      // footer
+    /// }));
+    /// ```
+    pub fn areas(self: Frame, comptime N: usize, l: Layout(N)) [N]Rect {
+        return l.areas(self.area());
     }
 
     pub fn setCell(self: *Frame, x: u16, y: u16, cell: Cell) void {
@@ -138,4 +159,5 @@ test {
     _ = @import("frame/types.zig");
     _ = @import("frame/rect.zig");
     _ = @import("frame/buffer.zig");
+    _ = @import("frame/layout.zig");
 }

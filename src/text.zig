@@ -10,7 +10,6 @@
 //! const width = text.displayWidth("Hello");      // 5
 //! ```
 
-const std = @import("std");
 
 /// Text utilities for terminal output.
 pub const Text = @This();
@@ -103,3 +102,5 @@ test "repeat" {
     const result = repeat('-', 5, &buf);
     try std.testing.expectEqualStrings("-----", result);
 }
+
+const std = @import("std");

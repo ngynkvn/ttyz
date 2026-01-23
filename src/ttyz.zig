@@ -30,30 +30,20 @@
 //! }
 //! ```
 
-const std = @import("std");
 
 /// Comprehensive ANSI escape sequence library.
-pub const ansi = @import("ansi.zig");
 /// Comptime color format string parser for inline ANSI colors.
-pub const colorz = @import("colorz.zig");
 /// VT100/xterm escape sequence constants.
-pub const event = @import("event.zig");
 pub const Event = event.Event;
 /// Frame-based drawing with cell buffers.
-pub const frame = @import("frame.zig");
 pub const Frame = frame.Frame;
 pub const Buffer = frame.Buffer;
 pub const Cell = frame.Cell;
 pub const Rect = frame.Rect;
 /// Kitty graphics protocol for terminal image display.
-pub const kitty = @import("kitty.zig");
 /// Immediate-mode UI layout engine.
-pub const layout = @import("layout.zig");
 /// DEC ANSI escape sequence parser.
-pub const parser = @import("parser.zig");
-pub const runner = @import("runner.zig");
 pub const Runner = runner.Runner;
-pub const screen = @import("screen.zig");
 pub const Screen = screen.Screen;
 pub const Backend = screen.Backend;
 pub const TtyBackend = screen.TtyBackend;
@@ -62,12 +52,9 @@ pub const panic = screen.panic;
 pub const panicTty = screen.panicTty;
 pub const queryHandleSize = screen.queryHandleSize;
 /// Box drawing with Unicode characters.
-pub const termdraw = @import("termdraw.zig");
 /// Test utilities for capturing terminal output.
-pub const test_capture = @import("test_capture.zig");
 pub const TestCapture = test_capture.TestCapture;
 /// Text utilities for padding, centering, and display width.
-pub const text = @import("text.zig");
 
 // Core modules
 // Re-export main types
@@ -79,3 +66,17 @@ pub const draw = struct {
 test {
     std.testing.refAllDecls(@This());
 }
+
+const std = @import("std");
+pub const ansi = @import("ansi.zig");
+pub const colorz = @import("colorz.zig");
+pub const event = @import("event.zig");
+pub const frame = @import("frame.zig");
+pub const kitty = @import("kitty.zig");
+pub const layout = @import("layout.zig");
+pub const parser = @import("parser.zig");
+pub const runner = @import("runner.zig");
+pub const screen = @import("screen.zig");
+pub const termdraw = @import("termdraw.zig");
+pub const test_capture = @import("test_capture.zig");
+pub const text = @import("text.zig");

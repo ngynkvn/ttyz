@@ -1194,8 +1194,9 @@ test "equivalency: format strings match" {
     try std.testing.expectEqualStrings(tc1, tc2);
 }
 
+// Keep E import for equivalency tests only
+
 const std = @import("std");
 
-// Keep E import for equivalency tests only
 const E = @import("esc.zig").E;
 pub const parser = @import("parser.zig");

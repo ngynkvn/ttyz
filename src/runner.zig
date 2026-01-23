@@ -3,11 +3,7 @@
 //! Simplifies the common pattern of polling events, handling them, and rendering.
 //! All events (keyboard, mouse, resize, etc.) are unified into a single event channel.
 
-const std = @import("std");
 
-const Event = @import("event.zig").Event;
-const frame = @import("frame.zig");
-const Screen = @import("screen.zig").Screen;
 
 /// Generic event/render loop runner.
 ///
@@ -130,3 +126,8 @@ pub fn Runner(comptime T: type) type {
         }
     };
 }
+
+const std = @import("std");
+const Event = @import("event.zig").Event;
+const frame = @import("frame.zig");
+const Screen = @import("screen.zig").Screen;

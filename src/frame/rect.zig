@@ -1,6 +1,5 @@
 //! Rectangle geometry for terminal coordinates.
 
-const std = @import("std");
 
 /// A rectangle area in the terminal.
 pub const Rect = struct {
@@ -110,3 +109,5 @@ test "Rect.isEmpty" {
     try std.testing.expect(Rect.sized(10, 0).isEmpty());
     try std.testing.expect(!Rect.sized(10, 10).isEmpty());
 }
+
+const std = @import("std");

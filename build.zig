@@ -1,4 +1,3 @@
-const std = @import("std");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -89,3 +88,5 @@ pub fn build(b: *std.Build) void {
     const docs_step = b.step("docs", "Generate documentation");
     docs_step.dependOn(&install_docs.step);
 }
+
+const std = @import("std");

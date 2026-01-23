@@ -2,9 +2,7 @@
 //!
 //! Demonstrates keyboard and mouse event handling using Frame and Layout.
 
-const std = @import("std");
 
-const ttyz = @import("ttyz");
 const frame = ttyz.frame;
 const Frame = ttyz.Frame;
 const Layout = frame.Layout;
@@ -119,3 +117,6 @@ pub fn main(init: std.process.Init) !void {
     var app = InputDemo{};
     try ttyz.Runner(InputDemo).runWithOptions(&app, init, ttyz.Screen.Options.default, .{ .fps = 60 });
 }
+
+const std = @import("std");
+const ttyz = @import("ttyz");

@@ -2,9 +2,7 @@
 //!
 //! Demonstrates basic Frame rendering with Layout.
 
-const std = @import("std");
 
-const ttyz = @import("ttyz");
 const Frame = ttyz.Frame;
 const Layout = ttyz.frame.Layout;
 const Color = ttyz.frame.Color;
@@ -43,3 +41,6 @@ pub fn main(init: std.process.Init) !void {
     var app = HelloApp{};
     try ttyz.Runner(HelloApp).run(&app, init, ttyz.Screen.Options.default);
 }
+
+const std = @import("std");
+const ttyz = @import("ttyz");

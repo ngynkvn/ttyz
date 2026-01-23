@@ -22,7 +22,6 @@
 //! try image.transmit(writer, pixels);
 //! ```
 
-const std = @import("std");
 const cc = std.ascii.control_code;
 
 /// Maximum chunk size for transmission (4096 bytes of base64 = 3072 bytes raw)
@@ -536,3 +535,5 @@ test "chunked transmission splits large data" {
     }
     try std.testing.expect(count >= 2);
 }
+
+const std = @import("std");

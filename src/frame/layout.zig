@@ -3,9 +3,7 @@
 //! Inspired by Ratatui's layout system:
 //! https://docs.rs/ratatui/latest/ratatui/layout/struct.Layout.html
 
-const std = @import("std");
 
-const Rect = @import("rect.zig").Rect;
 
 /// Direction of layout splitting.
 pub const Direction = enum {
@@ -227,3 +225,6 @@ test "layout with ratio" {
     try std.testing.expectEqual(@as(u16, 50), result[1].width);
     try std.testing.expectEqual(@as(u16, 25), result[2].width);
 }
+
+const std = @import("std");
+const Rect = @import("rect.zig").Rect;

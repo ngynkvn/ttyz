@@ -1,6 +1,5 @@
 //! Core types for the frame buffer system.
 
-const std = @import("std");
 
 /// Text styling attributes (packed into 1 byte).
 pub const Style = packed struct {
@@ -139,3 +138,5 @@ test "Cell" {
     const c2 = Cell{ .char = 'A', .fg = Color.red };
     try std.testing.expect(c1.eql(c2));
 }
+
+const std = @import("std");

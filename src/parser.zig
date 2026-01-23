@@ -4,7 +4,6 @@
 //! This parser uses a transition table for efficient byte-by-byte processing
 //! of ANSI escape sequences.
 
-const std = @import("std");
 
 /// Parser states from the DEC ANSI state machine
 pub const State = enum(u4) {
@@ -874,3 +873,5 @@ test "transition table - anywhere ESC" {
         try std.testing.expectEqual(State.escape, trans.state);
     }
 }
+
+const std = @import("std");

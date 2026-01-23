@@ -2,9 +2,7 @@
 //!
 //! Demonstrates all features using Frame and Layout.
 
-const std = @import("std");
 
-const ttyz = @import("ttyz");
 const fr = ttyz.frame;
 const Frame = ttyz.Frame;
 const Layout = fr.Layout;
@@ -307,3 +305,6 @@ pub fn main(init: std.process.Init) !void {
     var app = Demo{};
     try ttyz.Runner(Demo).run(&app, init, ttyz.Screen.Options.default);
 }
+
+const std = @import("std");
+const ttyz = @import("ttyz");

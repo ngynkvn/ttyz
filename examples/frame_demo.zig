@@ -6,9 +6,7 @@
 //! - Drawing styled text
 //! - Rendering to the terminal
 
-const std = @import("std");
 
-const ttyz = @import("ttyz");
 const Frame = ttyz.Frame;
 const Rect = ttyz.Rect;
 const frame = ttyz.frame;
@@ -152,3 +150,6 @@ pub fn main(init: std.process.Init) !void {
     var app = App{};
     try ttyz.Runner(App).run(&app, init, ttyz.Screen.Options.default);
 }
+
+const std = @import("std");
+const ttyz = @import("ttyz");

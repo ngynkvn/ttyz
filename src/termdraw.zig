@@ -13,9 +13,7 @@
 //! try termdraw.hline(&writer, .{ .x = 0, .y = 20, .width = 40 });
 //! ```
 
-const std = @import("std");
 
-const ansi = @import("ansi.zig");
 
 /// Terminal drawing context for managing drawing state.
 pub const TermDraw = @This();
@@ -196,3 +194,6 @@ const BoxChars = struct {
         vr,
     };
 };
+
+const std = @import("std");
+const ansi = @import("ansi.zig");

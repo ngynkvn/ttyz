@@ -2,7 +2,6 @@
 //!
 //! Events are polled using `Screen.pollEvent()`.
 
-const std = @import("std");
 
 /// Input event from the terminal.
 pub const Event = union(enum) {
@@ -161,3 +160,5 @@ pub const Event = union(enum) {
     /// Terminal window was resized.
     resize: struct { width: u16, height: u16 },
 };
+
+const std = @import("std");

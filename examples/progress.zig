@@ -2,9 +2,7 @@
 //!
 //! Demonstrates animated terminal output with progress indicators using Frame and Layout.
 
-const std = @import("std");
 
-const ttyz = @import("ttyz");
 const frame = ttyz.frame;
 const Frame = ttyz.Frame;
 const Layout = frame.Layout;
@@ -132,3 +130,6 @@ pub fn main(init: std.process.Init) !void {
     var app = ProgressDemo{};
     try ttyz.Runner(ProgressDemo).run(&app, init, ttyz.Screen.Options.default);
 }
+
+const std = @import("std");
+const ttyz = @import("ttyz");

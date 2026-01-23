@@ -189,15 +189,14 @@ pub const Style = enum {
 
     /// Get the ANSI escape sequence for this style.
     pub fn toAnsi(self: Style) []const u8 {
-        const a = @import("ansi.zig");
         return switch (self) {
-            .bold => a.bold,
-            .dim => a.faint,
-            .italic => a.italic,
-            .underline => a.underline,
-            .reverse => a.reverse,
-            .strikethrough => a.crossed_out,
-            .reset => a.reset,
+            .bold => ansi.bold,
+            .dim => ansi.faint,
+            .italic => ansi.italic,
+            .underline => ansi.underline,
+            .reverse => ansi.reverse,
+            .strikethrough => ansi.crossed_out,
+            .reset => ansi.reset,
         };
     }
 };

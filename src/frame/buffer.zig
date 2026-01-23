@@ -1,10 +1,7 @@
 //! 2D cell grid for terminal buffer management.
 
-const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-const Cell = @import("types.zig").Cell;
-const Rect = @import("rect.zig").Rect;
 
 /// A 2D grid of cells representing the terminal buffer.
 pub const Buffer = struct {
@@ -115,3 +112,7 @@ test "Buffer resize" {
     const cell = buffer.get(3, 2);
     try std.testing.expectEqual(@as(u21, ' '), cell.char);
 }
+
+const std = @import("std");
+const Cell = @import("types.zig").Cell;
+const Rect = @import("rect.zig").Rect;

@@ -175,9 +175,9 @@ pub const Frame = struct {
 };
 
 test {
-    std.testing.refAllDecls(@This());
     _ = @import("frame/types.zig");
     _ = @import("frame/rect.zig");
     _ = @import("frame/buffer.zig");
     _ = @import("frame/layout.zig");
+    std.testing.refAllDecls(@This());
 }

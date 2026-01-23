@@ -1,7 +1,5 @@
-const std = @import("std");
-
-const ttyz = @import("ttyz");
 const ansi = ttyz.ansi;
+const termdraw = ttyz.termdraw;
 
 pub fn main(init: std.process.Init) !void {
     const allocator = init.arena.allocator();
@@ -70,6 +68,33 @@ pub fn main(init: std.process.Init) !void {
         try s.print("Size input: " ++ ansi.fg.cyan ++ "{s}" ++ ansi.reset ++ "\r\n\r\n", .{s.textinput.items});
         try s.print(ansi.faint ++ "Type WxH (e.g. 10x5) + Enter to resize active panel\r\n", .{});
         try s.print("Tab to switch panel, q to quit" ++ ansi.reset ++ "\r\n\r\n", .{});
+
+        // Draw the two panels
+        const panel_y: u16 = 10;
+        const left_color: [4]u8 = if (active_panel == .left) .{ 0, 255, 128, 255 } else .{ 100, 100, 100, 255 };
+        const right_color: [4]u8 = if (active_panel == .right) .{ 0, 255, 128, 255 } else .{ 100, 100, 100, 255 };
+
+        try termdraw.box(&s, .{
+            .x = 2,
+            .y = panel_y,
+            .width = left_width,
+            .height = left_height,
+            .color = left_color,
+        });
+
+        try termdraw.box(&s, .{
+            .x = left_width + 5,
+            .y = panel_y,
+            .width = right_width,
+            .height = right_height,
+            .color = right_color,
+        });
+
+        // Labels for panels
+        try s.goto(panel_y + 1, 4);
+        try s.print("Left Panel", .{});
+        try s.goto(panel_y + 1, left_width + 7);
+        try s.print("Right Panel", .{});
 
         // Read input (non-blocking due to termios settings)
         s.readAndQueueEvents();
@@ -195,3 +220,6 @@ fn enableLogging() void {
 fn disableLogging() void {
     debug = false;
 }
+
+const std = @import("std");
+const ttyz = @import("ttyz");

@@ -1,4 +1,3 @@
-const std = @import("std");
 pub const cc = std.ascii.control_code;
 
 pub const E = @This();
@@ -129,3 +128,5 @@ pub const INSERT_LINE = ESC ++ "[L";
 pub const DELETE_LINE = ESC ++ "[M";
 pub const INSERT_LINES = ESC ++ "[{d}L";
 pub const DELETE_LINES = ESC ++ "[{d}M";
+
+const std = @import("std");

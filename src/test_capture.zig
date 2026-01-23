@@ -4,8 +4,6 @@
 //!
 //! ## Example
 //! ```zig
-//! const std = @import("std");
-//! const ttyz = @import("ttyz");
 //!
 //! test "Frame renders text" {
 //!     var capture = try ttyz.TestCapture.init(std.testing.allocator, 80, 24);
@@ -22,11 +20,6 @@
 //!     try std.testing.expect(capture.contains("Hello"));
 //! }
 //! ```
-
-const std = @import("std");
-const Screen = @import("screen.zig").Screen;
-const TestBackend = @import("backend.zig").TestBackend;
-const Event = @import("event.zig").Event;
 
 /// Test capture context that bundles a TestBackend with a Screen.
 ///
@@ -169,7 +162,6 @@ test "TestCapture basic usage" {
 }
 
 test "TestCapture with Frame" {
-    const frame_mod = @import("frame.zig");
     const Buffer = frame_mod.Buffer;
     const Frame = frame_mod.Frame;
 
@@ -206,3 +198,12 @@ test "TestCapture screen dimensions" {
     try std.testing.expectEqual(@as(u16, 120), capture.screen().width);
     try std.testing.expectEqual(@as(u16, 40), capture.screen().height);
 }
+
+const std = @import("std");
+
+const ttyz = @import("ttyz");
+
+const Event = @import("event.zig").Event;
+const frame_mod = @import("frame.zig");
+const Screen = @import("screen.zig").Screen;
+const TestBackend = @import("backend.zig").TestBackend;

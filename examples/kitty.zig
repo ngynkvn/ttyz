@@ -6,9 +6,7 @@
 //! Note: This example manages Screen directly because Kitty graphics
 //! writes escape sequences outside the Frame buffer system.
 
-const std = @import("std");
 
-const ttyz = @import("ttyz");
 const kitty = ttyz.kitty;
 const draw = ttyz.draw;
 const frame = ttyz.frame;
@@ -185,3 +183,6 @@ fn hsvToRgb(h: f32, s: f32, v: f32) struct { u8, u8, u8 } {
         @intFromFloat((b + m) * 255),
     };
 }
+
+const std = @import("std");
+const ttyz = @import("ttyz");

@@ -101,6 +101,27 @@ pub const Frame = struct {
         }
     }
 
+    /// Draw a horizontal line.
+    pub fn hline(self: *Frame, x: u16, y: u16, width: u16, char: u21, style: Style, fg: Color, bg: Color) void {
+        var col = x;
+        while (col < x +| width and col < self.buffer.width) : (col += 1) {
+            self.buffer.set(col, y, .{ .char = char, .fg = fg, .bg = bg, .style = style });
+        }
+    }
+
+    /// Draw a vertical line.
+    pub fn vline(self: *Frame, x: u16, y: u16, height: u16, char: u21, style: Style, fg: Color, bg: Color) void {
+        var row = y;
+        while (row < y +| height and row < self.buffer.height) : (row += 1) {
+            self.buffer.set(x, row, .{ .char = char, .fg = fg, .bg = bg, .style = style });
+        }
+    }
+
+    /// Set a string with default colors.
+    pub fn setText(self: *Frame, x: u16, y: u16, text: []const u8) void {
+        self.setString(x, y, text, .{}, .default, .default);
+    }
+
     pub fn clear(self: *Frame) void {
         self.buffer.clear();
     }

@@ -353,6 +353,21 @@ pub const Screen = struct {
     pub fn home(self: *Screen) !void {
         try self.writeAll(E.HOME);
     }
+
+    /// Clear screen and move cursor to home position.
+    pub fn reset(self: *Screen) !void {
+        try self.writeAll(E.CLEAR_SCREEN ++ E.HOME);
+    }
+
+    /// Hide the cursor.
+    pub fn hideCursor(self: *Screen) !void {
+        try self.writeAll(E.CURSOR_INVISIBLE);
+    }
+
+    /// Show the cursor.
+    pub fn showCursor(self: *Screen) !void {
+        try self.writeAll(E.CURSOR_VISIBLE);
+    }
 };
 
 /// Query the terminal size for a given file descriptor.

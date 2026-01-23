@@ -69,14 +69,21 @@ pub fn main(init: std.process.Init) !void {
 
         try s.clearScreen();
         try s.home();
+
+        // Title and instructions
+        try s.print(E.BOLD ++ "ttyz Layout Demo" ++ E.RESET_STYLE ++ "\r\n\r\n", .{});
+        try s.print("Input: " ++ E.FG_GREEN ++ "{s}" ++ E.RESET_STYLE ++ "\r\n", .{s.textinput.items});
+        try s.print("Toggle: {s}\r\n\r\n", .{if (s.toggle) "Section1" else "Section2"});
+        try s.print(E.DIM ++ "Type WxH (e.g. 10x5) + Enter to resize\r\n", .{});
+        try s.print("Tab to toggle section, q to quit" ++ E.RESET_STYLE ++ "\r\n\r\n", .{});
+
         for (renderCommands) |command| {
             const ui = command.node.ui;
             switch (command.node.tag) {
                 .text => {
-                    try s.print(E.GOTO ++ "{s}\n", .{ ui.y, ui.x, command.node.text.? });
+                    try s.print(E.GOTO ++ "{s}\r\n", .{ ui.y, ui.x, command.node.text.? });
                 },
                 .box => {
-                    // TODO: termdraw.box needs writer interface update
                     try s.print(E.GOTO ++ "\x1b[32m{s}\x1b[0m", .{ ui.y, ui.x, s.textinput.items });
                 },
             }

@@ -5,13 +5,13 @@ Output tapes/hello.gif
 
 Require zig
 
+Hide
 Set Shell "bash"
 Set FontSize 16
 Set Width 800
 Set Height 400
 Set Theme "Catppuccin Mocha"
 
-Hide
 Type "zig build hello 2>/dev/null"
 Enter
 Sleep 500ms

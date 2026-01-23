@@ -5,13 +5,13 @@ Output tapes/progress.gif
 
 Require zig
 
+Hide
 Set Shell "bash"
 Set FontSize 14
 Set Width 900
 Set Height 500
 Set Theme "Catppuccin Mocha"
 
-Hide
 Type "zig build progress 2>/dev/null"
 Enter
 Sleep 500ms

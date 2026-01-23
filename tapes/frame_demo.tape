@@ -5,13 +5,13 @@ Output tapes/frame_demo.gif
 
 Require zig
 
+Hide
 Set Shell "bash"
 Set FontSize 14
 Set Width 1000
 Set Height 600
 Set Theme "Catppuccin Mocha"
 
-Hide
 Type "zig build frame_demo 2>/dev/null"
 Enter
 Sleep 500ms

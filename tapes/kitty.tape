@@ -6,13 +6,13 @@ Output tapes/kitty.gif
 
 Require zig
 
+Hide
 Set Shell "bash"
 Set FontSize 12
 Set Width 1000
 Set Height 700
 Set Theme "Catppuccin Mocha"
 
-Hide
 Type "zig build kitty 2>/dev/null"
 Enter
 Sleep 500ms

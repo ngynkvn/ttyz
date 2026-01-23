@@ -5,13 +5,13 @@ Output tapes/demo.gif
 
 Require zig
 
+Hide
 Set Shell "bash"
 Set FontSize 14
 Set Width 1000
 Set Height 600
 Set Theme "Catppuccin Mocha"
 
-Hide
 Type "zig build demo 2>/dev/null"
 Enter
 Sleep 500ms

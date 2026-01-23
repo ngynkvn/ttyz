@@ -163,3 +163,102 @@ pub const Event = union(enum) {
 };
 
 const std = @import("std");
+const testing = std.testing;
+
+test "Key.arrow - valid arrow keys" {
+    try testing.expectEqual(Event.Key.arrow_up, Event.Key.arrow('A').?);
+    try testing.expectEqual(Event.Key.arrow_down, Event.Key.arrow('B').?);
+    try testing.expectEqual(Event.Key.arrow_right, Event.Key.arrow('C').?);
+    try testing.expectEqual(Event.Key.arrow_left, Event.Key.arrow('D').?);
+}
+
+test "Key.arrow - invalid input returns null" {
+    try testing.expectEqual(@as(?Event.Key, null), Event.Key.arrow('X'));
+    try testing.expectEqual(@as(?Event.Key, null), Event.Key.arrow('a'));
+    try testing.expectEqual(@as(?Event.Key, null), Event.Key.arrow(0));
+}
+
+test "Key.fromCsiNum - navigation keys" {
+    try testing.expectEqual(Event.Key.home, Event.Key.fromCsiNum(1, '~').?);
+    try testing.expectEqual(Event.Key.insert, Event.Key.fromCsiNum(2, '~').?);
+    try testing.expectEqual(Event.Key.delete, Event.Key.fromCsiNum(3, '~').?);
+    try testing.expectEqual(Event.Key.end, Event.Key.fromCsiNum(4, '~').?);
+    try testing.expectEqual(Event.Key.page_up, Event.Key.fromCsiNum(5, '~').?);
+    try testing.expectEqual(Event.Key.page_down, Event.Key.fromCsiNum(6, '~').?);
+}
+
+test "Key.fromCsiNum - function keys" {
+    try testing.expectEqual(Event.Key.f1, Event.Key.fromCsiNum(11, '~').?);
+    try testing.expectEqual(Event.Key.f2, Event.Key.fromCsiNum(12, '~').?);
+    try testing.expectEqual(Event.Key.f5, Event.Key.fromCsiNum(15, '~').?);
+    try testing.expectEqual(Event.Key.f12, Event.Key.fromCsiNum(24, '~').?);
+}
+
+test "Key.fromCsiNum - invalid input returns null" {
+    // Wrong suffix
+    try testing.expectEqual(@as(?Event.Key, null), Event.Key.fromCsiNum(1, 'A'));
+    // Unknown number
+    try testing.expectEqual(@as(?Event.Key, null), Event.Key.fromCsiNum(99, '~'));
+    try testing.expectEqual(@as(?Event.Key, null), Event.Key.fromCsiNum(0, '~'));
+}
+
+test "Mouse.fromButtonCode - basic buttons" {
+    // Left button press (code 0, final 'M' = press)
+    const left = Event.Mouse.fromButtonCode(0, 'M');
+    try testing.expectEqual(Event.MouseButton.left, left.button);
+    try testing.expectEqual(Event.MouseButtonState.pressed, left.button_state);
+
+    // Middle button press
+    const middle = Event.Mouse.fromButtonCode(1, 'M');
+    try testing.expectEqual(Event.MouseButton.middle, middle.button);
+
+    // Right button press
+    const right = Event.Mouse.fromButtonCode(2, 'M');
+    try testing.expectEqual(Event.MouseButton.right, right.button);
+}
+
+test "Mouse.fromButtonCode - button release" {
+    // Left button release (code 0, final 'm' = release)
+    const released = Event.Mouse.fromButtonCode(0, 'm');
+    try testing.expectEqual(Event.MouseButton.left, released.button);
+    try testing.expectEqual(Event.MouseButtonState.released, released.button_state);
+}
+
+test "Mouse.fromButtonCode - motion" {
+    // Motion flag is bit 5 (32)
+    const motion = Event.Mouse.fromButtonCode(32, 'M');
+    try testing.expectEqual(Event.MouseButtonState.motion, motion.button_state);
+}
+
+test "Mouse.fromButtonCode - scroll wheel" {
+    // Scroll up is bit 6 (64)
+    const scroll_up = Event.Mouse.fromButtonCode(64, 'M');
+    try testing.expectEqual(Event.MouseButton.scroll_up, scroll_up.button);
+
+    // Scroll down is bit 6 + bit 0 (65)
+    const scroll_down = Event.Mouse.fromButtonCode(65, 'M');
+    try testing.expectEqual(Event.MouseButton.scroll_down, scroll_down.button);
+}
+
+test "Mouse.fromButtonCode - modifiers" {
+    // Shift is bit 2 (4)
+    const with_shift = Event.Mouse.fromButtonCode(4, 'M');
+    try testing.expect(with_shift.shift);
+    try testing.expect(!with_shift.meta);
+    try testing.expect(!with_shift.ctrl);
+
+    // Meta/Alt is bit 3 (8)
+    const with_meta = Event.Mouse.fromButtonCode(8, 'M');
+    try testing.expect(!with_meta.shift);
+    try testing.expect(with_meta.meta);
+
+    // Ctrl is bit 4 (16)
+    const with_ctrl = Event.Mouse.fromButtonCode(16, 'M');
+    try testing.expect(with_ctrl.ctrl);
+
+    // All modifiers: shift + meta + ctrl = 4 + 8 + 16 = 28
+    const all_mods = Event.Mouse.fromButtonCode(28, 'M');
+    try testing.expect(all_mods.shift);
+    try testing.expect(all_mods.meta);
+    try testing.expect(all_mods.ctrl);
+}

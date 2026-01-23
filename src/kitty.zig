@@ -1,62 +1,61 @@
-//! Kitty graphics protocol implementation for terminal image display.
+//! Kitty graphics protocol for terminal image display.
 //!
-//! This module implements the Kitty terminal graphics protocol, allowing
-//! images to be displayed directly in compatible terminals (Kitty, WezTerm, etc.).
-//!
-//! ## Protocol Reference
-//! See: https://sw.kovidgoyal.net/kitty/graphics-protocol/
-//!
-//! ## Example
+//! ## Quick Start
 //! ```zig
-//! // Display RGBA pixel data directly
+//! // Display RGBA pixels
 //! try kitty.displayRgba(writer, pixels, width, height);
 //!
 //! // Display a PNG file
-//! try kitty.displayFile(writer, "/path/to/image.png");
-//!
-//! // Low-level: create custom image command
-//! var image = kitty.Image.init();
-//! image.setAction(.transmit_and_display);
-//! image.setFormat(.rgba);
-//! image.setSize(width, height);
-//! try image.transmit(writer, pixels);
+//! try kitty.displayFile(io, writer, "image.png");
 //! ```
+//!
+//! ## Reference
+//! https://sw.kovidgoyal.net/kitty/graphics-protocol/
 
 const std = @import("std");
-const cc = std.ascii.control_code;
 
-/// Maximum chunk size for transmission (4096 bytes of base64 = 3072 bytes raw)
-const MAX_CHUNK_SIZE: usize = 3072;
+// =============================================================================
+// Types
+// =============================================================================
+
+/// Pixel formats for image data.
+pub const Format = enum(usize) {
+    rgb = 24,
+    rgba = 32,
+    png = 100,
+};
+
+/// Transmission modes.
+pub const Transmission = enum(u8) {
+    direct = 'd',
+    file = 'f',
+    temp_file = 't',
+    shared_memory = 's',
+};
 
 // =============================================================================
 // High-Level API
 // =============================================================================
 
-/// Display RGBA pixel data at the current cursor position.
-/// This is the simplest way to show an image from raw pixel data.
+/// Display RGBA pixel data.
 pub fn displayRgba(writer: *std.Io.Writer, pixels: []const u8, width: usize, height: usize) !void {
-    var image = Image{ .params = .{
-        .a = 'T',
-        .f = 32, // RGBA
-        .s = width,
-        .v = height,
-    } };
-    try image.transmit(writer, pixels);
+    try transmit(writer, pixels, .{
+        .format = .rgba,
+        .width = width,
+        .height = height,
+    });
 }
 
-/// Display RGB pixel data (no alpha) at the current cursor position.
+/// Display RGB pixel data.
 pub fn displayRgb(writer: *std.Io.Writer, pixels: []const u8, width: usize, height: usize) !void {
-    var image = Image{ .params = .{
-        .a = 'T',
-        .f = 24, // RGB
-        .s = width,
-        .v = height,
-    } };
-    try image.transmit(writer, pixels);
+    try transmit(writer, pixels, .{
+        .format = .rgb,
+        .width = width,
+        .height = height,
+    });
 }
 
-/// Display a PNG file at the current cursor position.
-/// Reads the file and transmits contents directly (works in all terminals).
+/// Display a PNG file (reads and transmits contents).
 pub fn displayFile(io: std.Io, writer: *std.Io.Writer, path: []const u8) !void {
     const file = if (std.fs.path.isAbsolute(path))
         try std.Io.Dir.openFileAbsolute(io, path, .{})
@@ -64,336 +63,222 @@ pub fn displayFile(io: std.Io, writer: *std.Io.Writer, path: []const u8) !void {
         try std.Io.Dir.cwd().openFile(io, path, .{});
     defer file.close(io);
 
-    var image = Image{ .params = .{
-        .a = 'T',
-        .f = 100, // PNG
-    } };
-    try image.transmitFile(io, writer, file);
+    try transmitFile(io, writer, file, .{ .format = .png });
 }
 
-/// Display a PNG file using an allocator for buffering.
+/// Display a PNG file using allocator.
 pub fn displayFileAlloc(allocator: std.mem.Allocator, writer: *std.Io.Writer, path: []const u8) !void {
-    const file_contents = try std.fs.cwd().readFileAlloc(allocator, path, 10 * 1024 * 1024);
-    defer allocator.free(file_contents);
-
-    var image = Image{ .params = .{
-        .a = 'T',
-        .f = 100, // PNG
-    } };
-    try image.transmit(writer, file_contents);
+    const data = try std.fs.cwd().readFileAlloc(allocator, path, 10 * 1024 * 1024);
+    defer allocator.free(data);
+    try transmit(writer, data, .{ .format = .png });
 }
 
-/// Display a PNG file by sending the path to the terminal (t=f mode).
-/// The terminal reads the file directly from the filesystem.
-/// Requires: absolute path, terminal must have filesystem access.
-/// Use displayFile() instead for better compatibility (works over SSH, etc).
+/// Display a PNG file by path (terminal reads file directly).
 pub fn displayFilePath(writer: *std.Io.Writer, path: []const u8) !void {
-    var image = Image{ .params = .{
-        .a = 'T',
-        .f = 100, // PNG
-        .t = 'f',
-    } };
-    try image.transmitPath(writer, path);
+    try transmitPath(writer, path, .{ .format = .png });
 }
 
-/// Delete all images from the terminal.
+/// Delete all images.
 pub fn deleteAll(writer: *std.Io.Writer) !void {
-    const cmd = Image{ .params = .{ .a = 'd', .d = 'a' } };
-    try cmd.writeCommand(writer);
+    try writeCommand(writer, .{ .a = 'd', .d = 'a' });
 }
 
-/// Delete a specific image by ID.
-pub fn deleteById(writer: *std.Io.Writer, image_id: usize) !void {
-    const cmd = Image{ .params = .{ .a = 'd', .d = 'i', .i = image_id } };
-    try cmd.writeCommand(writer);
+/// Delete image by ID.
+pub fn deleteById(writer: *std.Io.Writer, id: usize) !void {
+    try writeCommand(writer, .{ .a = 'd', .d = 'i', .i = id });
 }
 
-/// Clear all images at the current cursor position.
+/// Clear images at cursor.
 pub fn clearAtCursor(writer: *std.Io.Writer) !void {
-    const cmd = Image{ .params = .{ .a = 'd', .d = 'c' } };
-    try cmd.writeCommand(writer);
+    try writeCommand(writer, .{ .a = 'd', .d = 'c' });
 }
 
 // =============================================================================
-// Image Builder
+// Transmission
 // =============================================================================
 
-/// An image command for the Kitty graphics protocol.
-/// Initialize with params directly: `Image{ .params = .{ .a = 'T', .f = 32, ... } }`
-pub const Image = struct {
-    params: Params = .{},
-
-    // -------------------------------------------------------------------------
-    // Transmission methods
-    // -------------------------------------------------------------------------
-
-    /// Transmit pixel data (handles chunking for large images).
-    pub fn transmit(self: *Image, writer: *std.Io.Writer, data: []const u8) !void {
-        if (data.len <= MAX_CHUNK_SIZE) {
-            // Single chunk transmission
-            self.params.m = 0;
-            try self.writeCommandWithPayload(writer, data);
-        } else {
-            // Chunked transmission
-            var offset: usize = 0;
-            var first = true;
-            while (offset < data.len) {
-                const end = @min(offset + MAX_CHUNK_SIZE, data.len);
-                const chunk = data[offset..end];
-                const is_last = end >= data.len;
-
-                self.params.m = if (is_last) 0 else 1;
-
-                if (first) {
-                    try self.writeCommandWithPayload(writer, chunk);
-                    first = false;
-                    // Clear params that shouldn't repeat
-                    self.params.s = null;
-                    self.params.v = null;
-                    self.params.f = null;
-                } else {
-                    try self.writeContinuation(writer, chunk, is_last);
-                }
-
-                offset = end;
-            }
-        }
-    }
-
-    /// Transmit a file path (for t=f mode where terminal reads the file).
-    pub fn transmitPath(self: *Image, writer: *std.Io.Writer, path: []const u8) !void {
-        self.params.m = 0;
-        try self.writeCommandWithPayload(writer, path);
-    }
-
-    /// Transmit file contents by reading from a file handle.
-    /// Uses double buffering to determine when we've reached EOF.
-    pub fn transmitFile(self: *Image, io: std.Io, writer: *std.Io.Writer, file: std.Io.File) !void {
-        var buf_a: [MAX_CHUNK_SIZE]u8 = undefined;
-        var buf_b: [MAX_CHUNK_SIZE]u8 = undefined;
-        var current: []u8 = &buf_a;
-        var next: []u8 = &buf_b;
-
-        // Read first chunk
-        var current_len = try file.readStreaming(io, &.{current});
-        if (current_len == 0) {
-            // Empty file
-            self.params.m = 0;
-            try self.writeCommandWithPayload(writer, &.{});
-            return;
-        }
-
-        var first = true;
-        while (current_len > 0) {
-            // Read ahead to determine if this is the last chunk
-            const next_len = try file.readStreaming(io, &.{next});
-            const is_last = next_len == 0;
-
-            self.params.m = if (is_last) 0 else 1;
-
-            if (first) {
-                try self.writeCommandWithPayload(writer, current[0..current_len]);
-                first = false;
-                // Clear params that shouldn't repeat
-                self.params.a = null;
-                self.params.f = null;
-            } else {
-                try self.writeContinuation(writer, current[0..current_len], is_last);
-            }
-
-            // Swap buffers
-            const tmp = current;
-            current = next;
-            next = tmp;
-            current_len = next_len;
-        }
-    }
-
-    // -------------------------------------------------------------------------
-    // Low-level write methods
-    // -------------------------------------------------------------------------
-
-    /// Write a command without payload.
-    pub fn writeCommand(self: *Image, writer: *std.Io.Writer) !void {
-        try writer.writeAll(&[_]u8{ cc.esc, '_', 'G' });
-        try self.writeParams(writer);
-        try writer.writeAll(&[_]u8{ cc.esc, '\\' });
-    }
-
-    /// Write a command with base64-encoded payload.
-    pub fn writeCommandWithPayload(self: *Image, writer: *std.Io.Writer, payload: []const u8) !void {
-        try writer.writeAll(&[_]u8{ cc.esc, '_', 'G' });
-        try self.writeParams(writer);
-        try writer.writeByte(';');
-        try std.base64.standard.Encoder.encodeWriter(writer, payload);
-        try writer.writeAll(&[_]u8{ cc.esc, '\\' });
-    }
-
-    /// Write a continuation chunk for chunked transmission.
-    fn writeContinuation(self: *Image, writer: *std.Io.Writer, chunk: []const u8, is_last: bool) !void {
-        _ = self;
-        try writer.writeAll(&[_]u8{ cc.esc, '_', 'G' });
-        if (is_last) {
-            try writer.writeAll("m=0;");
-        } else {
-            try writer.writeAll("m=1;");
-        }
-        try std.base64.standard.Encoder.encodeWriter(writer, chunk);
-        try writer.writeAll(&[_]u8{ cc.esc, '\\' });
-    }
-
-    /// Write control parameters.
-    fn writeParams(self: *Image, writer: *std.Io.Writer) !void {
-        var first = true;
-        var int_buf: [20]u8 = undefined;
-        inline for (std.meta.fields(Params)) |field| {
-            const value = @field(self.params, field.name);
-            if (value) |v| {
-                if (!first) try writer.writeByte(',');
-                first = false;
-                try writer.writeAll(field.name);
-                try writer.writeByte('=');
-                switch (@TypeOf(v)) {
-                    u8 => try writer.writeByte(v),
-                    usize => {
-                        const slice = std.fmt.bufPrint(&int_buf, "{d}", .{v}) catch unreachable;
-                        try writer.writeAll(slice);
-                    },
-                    isize => {
-                        const slice = std.fmt.bufPrint(&int_buf, "{d}", .{v}) catch unreachable;
-                        try writer.writeAll(slice);
-                    },
-                    else => @compileError("unsupported param type"),
-                }
-            }
-        }
-    }
-
-    // -------------------------------------------------------------------------
-    // Enums
-    // -------------------------------------------------------------------------
-
-    /// Actions that can be performed.
-    pub const Action = enum(u8) {
-        transmit = 't',
-        transmit_and_display = 'T',
-        query = 'q',
-        put = 'p', // display previously transmitted
-        delete = 'd',
-        frame = 'f', // animation frame
-        animation = 'a', // animation control
-        compose = 'c', // compose frames
-    };
-
-    /// Pixel formats.
-    pub const Format = enum(usize) {
-        rgb = 24,
-        rgba = 32,
-        png = 100,
-    };
-
-    /// Transmission types.
-    pub const Transmission = enum(u8) {
-        direct = 'd', // direct pixel data
-        file = 'f', // file path
-        temp_file = 't', // temporary file
-        shared_memory = 's', // shared memory
-    };
-
-    /// Quiet levels.
-    pub const QuietLevel = enum(u8) {
-        normal = 0,
-        suppress_ok = 1,
-        suppress_all = 2,
-    };
-
-    // -------------------------------------------------------------------------
-    // Parameters struct
-    // -------------------------------------------------------------------------
-
-    /// Control parameters for the Kitty graphics protocol.
-    /// See: https://sw.kovidgoyal.net/kitty/graphics-protocol/#control-data-reference
-    pub const Params = struct {
-        // zig fmt: off
-        /// Action: 't' (transmit), 'T' (transmit+display), 'q' (query), etc.
-        a: ?u8 = null,
-        /// Quiet mode: 1 (suppress OK), 2 (suppress errors too).
-        q: ?u8 = null,
-        /// Format: 24 (RGB), 32 (RGBA), 100 (PNG).
-        f: ?usize = null,
-        /// Transmission type: 'd' (direct), 'f' (file), 't' (temp file), 's' (shared memory).
-        t: ?u8 = null,
-        /// Source width in pixels.
-        s: ?usize = null,
-        /// Source height in pixels.
-        v: ?usize = null,
-        /// Total data size for chunked transmission.
-        S: ?usize = null,
-        /// Offset into data for chunked transmission.
-        O: ?usize = null,
-        /// Image ID for later reference.
-        i: ?usize = null,
-        /// Image number for placement.
-        I: ?usize = null,
-        /// Placement ID.
-        p: ?usize = null,
-        /// Compression: 'z' for zlib.
-        o: ?u8 = null,
-        /// More data coming: 1 if chunked, 0 for final chunk.
-        m: ?usize = null,
-        /// Display x position offset.
-        x: ?usize = null,
-        /// Display y position offset.
-        y: ?usize = null,
-        /// Display width (scaled).
-        w: ?usize = null,
-        /// Display height (scaled).
-        h: ?usize = null,
-        /// Source x offset (crop).
-        X: ?usize = null,
-        /// Source y offset (crop).
-        Y: ?usize = null,
-        /// Columns to display.
-        c: ?usize = null,
-        /// Rows to display.
-        r: ?usize = null,
-        /// Cursor movement after display.
-        C: ?usize = null,
-        /// Unicode placeholder.
-        U: ?usize = null,
-        /// Z-index for layering.
-        z: ?isize = null,
-        /// Delete specifier.
-        d: ?u8 = null,
-        /// Parent image ID.
-        P: ?usize = null,
-        /// Suppress response.
-        Q: ?usize = null,
-        /// Horizontal offset within cell.
-        H: ?usize = null,
-        /// Vertical offset within cell.
-        V: ?usize = null,
-        // zig fmt: on
-    };
+pub const TransmitOptions = struct {
+    format: Format = .rgba,
+    width: ?usize = null,
+    height: ?usize = null,
+    id: ?usize = null,
 };
 
+const MAX_CHUNK: usize = 3072;
+
+/// Transmit image data with chunking.
+pub fn transmit(writer: *std.Io.Writer, data: []const u8, opts: TransmitOptions) !void {
+    if (data.len <= MAX_CHUNK) {
+        try writeCommandWithPayload(writer, data, .{
+            .a = 'T',
+            .f = @intFromEnum(opts.format),
+            .s = opts.width,
+            .v = opts.height,
+            .i = opts.id,
+            .m = 0,
+        });
+    } else {
+        var offset: usize = 0;
+        var first = true;
+        while (offset < data.len) {
+            const end = @min(offset + MAX_CHUNK, data.len);
+            const is_last = end >= data.len;
+
+            if (first) {
+                try writeCommandWithPayload(writer, data[offset..end], .{
+                    .a = 'T',
+                    .f = @intFromEnum(opts.format),
+                    .s = opts.width,
+                    .v = opts.height,
+                    .i = opts.id,
+                    .m = if (is_last) 0 else 1,
+                });
+                first = false;
+            } else {
+                try writeContinuation(writer, data[offset..end], is_last);
+            }
+            offset = end;
+        }
+    }
+}
+
+/// Transmit file path (terminal reads file).
+pub fn transmitPath(writer: *std.Io.Writer, path: []const u8, opts: TransmitOptions) !void {
+    try writeCommandWithPayload(writer, path, .{
+        .a = 'T',
+        .f = @intFromEnum(opts.format),
+        .t = 'f',
+        .i = opts.id,
+        .m = 0,
+    });
+}
+
+/// Transmit file contents with streaming.
+pub fn transmitFile(io: std.Io, writer: *std.Io.Writer, file: std.Io.File, opts: TransmitOptions) !void {
+    var buf_a: [MAX_CHUNK]u8 = undefined;
+    var buf_b: [MAX_CHUNK]u8 = undefined;
+    var current: []u8 = &buf_a;
+    var next: []u8 = &buf_b;
+
+    var current_len = try file.readStreaming(io, &.{current});
+    if (current_len == 0) {
+        try writeCommandWithPayload(writer, &.{}, .{
+            .a = 'T',
+            .f = @intFromEnum(opts.format),
+            .i = opts.id,
+            .m = 0,
+        });
+        return;
+    }
+
+    var first = true;
+    while (current_len > 0) {
+        const next_len = try file.readStreaming(io, &.{next});
+        const is_last = next_len == 0;
+
+        if (first) {
+            try writeCommandWithPayload(writer, current[0..current_len], .{
+                .a = 'T',
+                .f = @intFromEnum(opts.format),
+                .i = opts.id,
+                .m = if (is_last) 0 else 1,
+            });
+            first = false;
+        } else {
+            try writeContinuation(writer, current[0..current_len], is_last);
+        }
+
+        const tmp = current;
+        current = next;
+        next = tmp;
+        current_len = next_len;
+    }
+}
+
 // =============================================================================
-// Canvas - Pixel buffer for drawing
+// Low-level Protocol
 // =============================================================================
 
-/// A pixel canvas with RGBA storage for drawing operations.
+/// Protocol parameters.
+pub const Params = struct {
+    a: ?u8 = null, // action
+    f: ?usize = null, // format
+    t: ?u8 = null, // transmission
+    s: ?usize = null, // width
+    v: ?usize = null, // height
+    i: ?usize = null, // image id
+    p: ?usize = null, // placement id
+    m: ?usize = null, // more data
+    d: ?u8 = null, // delete
+    q: ?u8 = null, // quiet
+    x: ?usize = null, // x offset
+    y: ?usize = null, // y offset
+    w: ?usize = null, // display width
+    h: ?usize = null, // display height
+    c: ?usize = null, // columns
+    r: ?usize = null, // rows
+    z: ?isize = null, // z-index
+};
+
+const ESC = std.ascii.control_code.esc;
+
+fn writeCommand(writer: *std.Io.Writer, params: Params) !void {
+    try writer.writeAll(&.{ ESC, '_', 'G' });
+    try writeParams(writer, params);
+    try writer.writeAll(&.{ ESC, '\\' });
+}
+
+fn writeCommandWithPayload(writer: *std.Io.Writer, payload: []const u8, params: Params) !void {
+    try writer.writeAll(&.{ ESC, '_', 'G' });
+    try writeParams(writer, params);
+    try writer.writeByte(';');
+    try std.base64.standard.Encoder.encodeWriter(writer, payload);
+    try writer.writeAll(&.{ ESC, '\\' });
+}
+
+fn writeContinuation(writer: *std.Io.Writer, chunk: []const u8, is_last: bool) !void {
+    try writer.writeAll(&.{ ESC, '_', 'G' });
+    try writer.writeAll(if (is_last) "m=0;" else "m=1;");
+    try std.base64.standard.Encoder.encodeWriter(writer, chunk);
+    try writer.writeAll(&.{ ESC, '\\' });
+}
+
+fn writeParams(writer: *std.Io.Writer, params: Params) !void {
+    var first = true;
+    var buf: [20]u8 = undefined;
+
+    inline for (std.meta.fields(Params)) |field| {
+        if (@field(params, field.name)) |v| {
+            if (!first) try writer.writeByte(',');
+            first = false;
+            try writer.writeAll(field.name);
+            try writer.writeByte('=');
+            switch (@TypeOf(v)) {
+                u8 => try writer.writeByte(v),
+                usize => try writer.writeAll(std.fmt.bufPrint(&buf, "{d}", .{v}) catch unreachable),
+                isize => try writer.writeAll(std.fmt.bufPrint(&buf, "{d}", .{v}) catch unreachable),
+                else => @compileError("unsupported type"),
+            }
+        }
+    }
+}
+
+// =============================================================================
+// Canvas
+// =============================================================================
+
+/// RGBA pixel buffer.
 pub const Canvas = struct {
     width: usize,
     height: usize,
     pixels: []u8,
 
     pub fn initAlloc(allocator: std.mem.Allocator, width: usize, height: usize) !Canvas {
-        const pixels = try allocator.alloc(u8, width * height * 4);
-        return .{ .width = width, .height = height, .pixels = pixels };
-    }
-
-    pub fn init(width: usize, height: usize, pixels: []u8) Canvas {
-        return .{ .width = width, .height = height, .pixels = pixels };
+        return .{
+            .width = width,
+            .height = height,
+            .pixels = try allocator.alloc(u8, width * height * 4),
+        };
     }
 
     pub fn deinit(self: *Canvas, allocator: std.mem.Allocator) void {
@@ -404,30 +289,22 @@ pub const Canvas = struct {
         try displayRgba(writer, self.pixels, self.width, self.height);
     }
 
-    pub fn drawBox(self: *Canvas, x: usize, y: usize, width: usize, height: usize, color: u32) void {
-        // Color format: 0xAABBGGRR (little-endian ABGR)
-        // toBytes on little-endian gives us [R, G, B, A]
-        const r, const g, const b, const a = std.mem.toBytes(color);
-        for (0..width) |i| {
-            for (0..height) |j| {
-                const idx = (y + j) * (self.width * 4) + (x + i) * 4;
-                if (idx + 3 < self.pixels.len) {
-                    self.pixels[idx] = r;
-                    self.pixels[idx + 1] = g;
-                    self.pixels[idx + 2] = b;
-                    self.pixels[idx + 3] = a;
-                }
-            }
-        }
-    }
-
     pub fn setPixel(self: *Canvas, x: usize, y: usize, r: u8, g: u8, b: u8, a: u8) void {
-        const idx = y * (self.width * 4) + x * 4;
+        const idx = (y * self.width + x) * 4;
         if (idx + 3 < self.pixels.len) {
             self.pixels[idx] = r;
             self.pixels[idx + 1] = g;
             self.pixels[idx + 2] = b;
             self.pixels[idx + 3] = a;
+        }
+    }
+
+    pub fn drawBox(self: *Canvas, x: usize, y: usize, w: usize, h: usize, color: u32) void {
+        const r, const g, const b, const a = std.mem.toBytes(color);
+        for (0..h) |dy| {
+            for (0..w) |dx| {
+                self.setPixel(x + dx, y + dy, r, g, b, a);
+            }
         }
     }
 
@@ -440,105 +317,53 @@ pub const Canvas = struct {
 // Tests
 // =============================================================================
 
-test "Image default params are null" {
-    const img = Image{};
-    try std.testing.expectEqual(@as(?u8, null), img.params.a);
-    try std.testing.expectEqual(@as(?usize, null), img.params.f);
-}
-
-test "Image direct initialization" {
-    const img = Image{ .params = .{
-        .a = 'T',
-        .f = 32, // RGBA
-        .s = 100,
-        .v = 50,
-    } };
-
-    try std.testing.expectEqual(@as(?u8, 'T'), img.params.a);
-    try std.testing.expectEqual(@as(?usize, 32), img.params.f);
-    try std.testing.expectEqual(@as(?usize, 100), img.params.s);
-    try std.testing.expectEqual(@as(?usize, 50), img.params.v);
-}
-
-test "writeParams outputs correct format" {
-    var img = Image{ .params = .{
-        .a = 'T',
-        .f = 32, // RGBA
-        .s = 10,
-        .v = 20,
-        .m = 0,
-    } };
-
-    var buf: [256]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buf);
-
-    try img.writeParams(&writer);
-
-    const output = writer.buffered();
-    // Should contain key=value pairs separated by commas
-    try std.testing.expect(std.mem.indexOf(u8, output, "a=T") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output, "f=32") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output, "s=10") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output, "v=20") != null);
-}
-
-test "writeCommand produces valid escape sequence" {
-    var img = Image{ .params = .{ .a = 'd', .d = 'a' } };
-
-    var buf: [256]u8 = undefined;
-    var writer = std.Io.Writer.fixed(&buf);
-
-    try img.writeCommand(&writer);
-
-    const output = writer.buffered();
-    // Should start with ESC_G and end with ESC\
-    try std.testing.expectEqual(@as(u8, 0x1B), output[0]);
-    try std.testing.expectEqual(@as(u8, '_'), output[1]);
-    try std.testing.expectEqual(@as(u8, 'G'), output[2]);
-    try std.testing.expectEqual(@as(u8, 0x1B), output[output.len - 2]);
-    try std.testing.expectEqual(@as(u8, '\\'), output[output.len - 1]);
-}
-
-test "writeCommandWithPayload includes base64 data" {
-    var img = Image{ .params = .{
-        .a = 'T',
-        .f = 32, // RGBA
-        .m = 0,
-    } };
-
+test "transmit small data" {
     var buf: [512]u8 = undefined;
     var writer = std.Io.Writer.fixed(&buf);
 
-    const test_data = "test";
-    try img.writeCommandWithPayload(&writer, test_data);
+    try transmit(&writer, "test", .{ .format = .png });
 
-    const output = writer.buffered();
-    // Should contain base64 encoded "test" = "dGVzdA=="
-    try std.testing.expect(std.mem.indexOf(u8, output, "dGVzdA==") != null);
+    const out = writer.buffered();
+    try std.testing.expect(std.mem.indexOf(u8, out, "a=T") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "f=100") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "m=0") != null);
 }
 
-test "chunked transmission splits large data" {
-    var img = Image{ .params = .{
-        .a = 'T',
-        .f = 32, // RGBA
-        .s = 100,
-        .v = 100,
-    } };
-
-    // Create data larger than MAX_CHUNK_SIZE
-    var large_data: [MAX_CHUNK_SIZE + 100]u8 = undefined;
-    @memset(&large_data, 0xAB);
+test "transmit chunked data" {
+    var large: [MAX_CHUNK + 100]u8 = undefined;
+    @memset(&large, 0xAB);
 
     var buf: [16384]u8 = undefined;
     var writer = std.Io.Writer.fixed(&buf);
 
-    try img.transmit(&writer, &large_data);
+    try transmit(&writer, &large, .{ .format = .rgba });
 
-    const output = writer.buffered();
-    // Should have multiple ESC sequences (chunked)
-    var count: usize = 0;
-    for (0..output.len - 1) |i| {
-        if (output[i] == 0x1B and output[i + 1] == '_') count += 1;
+    const out = writer.buffered();
+    var chunks: usize = 0;
+    for (0..out.len - 1) |i| {
+        if (out[i] == ESC and out[i + 1] == '_') chunks += 1;
     }
-    try std.testing.expect(count >= 2);
+    try std.testing.expect(chunks >= 2);
+}
+
+test "writeParams" {
+    var buf: [256]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buf);
+
+    try writeParams(&writer, .{ .a = 'T', .f = 32, .s = 10, .v = 20 });
+
+    const out = writer.buffered();
+    try std.testing.expect(std.mem.indexOf(u8, out, "a=T") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "f=32") != null);
+}
+
+test "Canvas setPixel" {
+    var pixels: [16]u8 = undefined;
+    var canvas = Canvas{ .width = 2, .height = 2, .pixels = &pixels };
+
+    canvas.setPixel(0, 0, 255, 0, 0, 255);
+    try std.testing.expectEqual(@as(u8, 255), pixels[0]); // R
+    try std.testing.expectEqual(@as(u8, 0), pixels[1]); // G
+    try std.testing.expectEqual(@as(u8, 0), pixels[2]); // B
+    try std.testing.expectEqual(@as(u8, 255), pixels[3]); // A
 }

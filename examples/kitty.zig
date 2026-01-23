@@ -86,9 +86,8 @@ pub fn main(init: std.process.Init) !void {
     // 4. PNG file
     try screen.print("\r\n\r\n4. PNG file from disk ({s}):\r\n", .{path});
     try screen.flush();
-    writer = std.Io.Writer.fixed(&buf);
-    try kitty.displayFile(io, &writer, path);
-    _ = try screen.write(writer.buffered());
+    const w = screen.backend.writer();
+    try kitty.displayFilePath(w, path);
     try screen.flush();
 
     try screen.print("\r\n\r\nPress any key to clear images and exit...", .{});

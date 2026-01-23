@@ -43,11 +43,11 @@ pub fn main(init: std.process.Init) !void {
     while (s.running) {
         ctx.begin();
 
-        // Main horizontal container
+        // Main horizontal container (top padding leaves room for instructions)
         {
             ctx.open(.{
                 .direction = .horizontal,
-                .padding = layout.Padding.all(1),
+                .padding = layout.Padding.from(8, 1, 1, 1),
                 .gap = 2,
             });
             defer ctx.close();

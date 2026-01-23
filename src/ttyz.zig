@@ -195,6 +195,8 @@ pub const Screen = struct {
     textinput: std.ArrayList(u8),
     /// Buffered writer for terminal output.
     writer: Writer,
+    /// ANSI escape sequence parser for input.
+    input_parser: parser.Parser,
 
     /// Enter "raw mode", returning a struct that wraps around the provided tty file
     /// Entering raw mode will automatically send the sequence for entering an
@@ -259,6 +261,7 @@ pub const Screen = struct {
             .toggle = false,
             .textinput_buffer = std.mem.zeroes([32]u8),
             .textinput = std.ArrayList(u8).initBuffer(&self.textinput_buffer),
+            .input_parser = parser.Parser.init(),
         };
         self.writer = Writer.init(&self);
 
@@ -349,10 +352,108 @@ pub const Screen = struct {
             const rc = system.read(self.fd, &input_buffer, input_buffer.len);
             if (rc <= 0) continue;
             const bytes_read: usize = @intCast(rc);
-            const ev = InputParser.parseInput(input_buffer[0..bytes_read]) catch {
-                continue;
-            };
-            self.event_queue.pushBackBounded(ev) catch {};
+
+            // Process each byte through the parser
+            for (input_buffer[0..bytes_read]) |byte| {
+                const action = self.input_parser.advance(byte);
+                if (self.actionToEvent(action, byte)) |ev| {
+                    self.event_queue.pushBackBounded(ev) catch {};
+                }
+            }
+        }
+    }
+
+    /// Convert parser action to an Event, if applicable.
+    fn actionToEvent(self: *Screen, action: parser.Action, byte: u8) ?Event {
+        switch (action) {
+            .execute => {
+                // Handle C0 control characters
+                if (byte == 3) return .interrupt; // Ctrl+C
+                if (byte == '\r' or byte == '\n') return .{ .key = .carriage_return };
+                if (byte == '\t') return .{ .key = .tab };
+                if (byte == 0x1B) return .{ .key = .esc }; // ESC alone
+                return null;
+            },
+            .print => {
+                // Printable character
+                return .{ .key = @enumFromInt(byte) };
+            },
+            .csi_dispatch => {
+                return self.parseCsiEvent();
+            },
+            .osc_end => {
+                // Check for focus events (OSC 1004)
+                const osc_data = self.input_parser.getOscData();
+                if (osc_data.len > 0) {
+                    if (osc_data[0] == 'I') return .{ .focus = true };
+                    if (osc_data[0] == 'O') return .{ .focus = false };
+                }
+                return null;
+            },
+            else => return null,
+        }
+    }
+
+    /// Parse a CSI sequence into an Event.
+    fn parseCsiEvent(self: *Screen) ?Event {
+        const p = &self.input_parser;
+        const final = p.final_char;
+        const params = p.getParams();
+
+        // Arrow keys and simple navigation
+        switch (final) {
+            'A' => return .{ .key = .arrow_up },
+            'B' => return .{ .key = .arrow_down },
+            'C' => return .{ .key = .arrow_right },
+            'D' => return .{ .key = .arrow_left },
+            'H' => return .{ .key = .home },
+            'F' => return .{ .key = .end },
+            'Z' => return .{ .key = .backtab },
+            'R' => {
+                // Cursor position response
+                if (params.len >= 2) {
+                    return .{ .cursor_pos = .{
+                        .row = params[0],
+                        .col = params[1],
+                    } };
+                }
+                return null;
+            },
+            '~' => {
+                // Function keys and special keys
+                if (params.len >= 1) {
+                    if (Event.Key.fromCsiNum(@intCast(params[0]), '~')) |key| {
+                        return .{ .key = key };
+                    }
+                }
+                return null;
+            },
+            'M', 'm' => {
+                // SGR mouse (private marker '<')
+                if (p.private_marker == '<' and params.len >= 3) {
+                    const button_code = params[0];
+                    const col = params[1];
+                    const row = params[2];
+                    const button: Event.MouseButton = switch (button_code & 0x43) {
+                        0 => .left,
+                        1 => .middle,
+                        2 => .right,
+                        64 => .scroll_up,
+                        65 => .scroll_down,
+                        else => .unknown,
+                    };
+                    return .{ .mouse = .{
+                        .button = button,
+                        .row = row,
+                        .col = col,
+                        .button_state = if (final == 'M') .pressed else .released,
+                    } };
+                }
+                return null;
+            },
+            'I' => return .{ .focus = true },
+            'O' => return .{ .focus = false },
+            else => return null,
         }
     }
 
@@ -471,6 +572,7 @@ pub const Event = union(enum) {
         home = 132, end = 133,
         page_up = 134, page_down = 135,
         insert = 136, delete = 137,
+        backtab = 138,
 
         // Function keys
         f1 = 140, f2 = 141, f3 = 142, f4 = 143,
@@ -557,117 +659,6 @@ pub const Event = union(enum) {
     focus: bool,
     /// Ctrl+C was pressed.
     interrupt: void,
-};
-
-/// Input parser for terminal events.
-const InputParser = struct {
-    pub fn parseInput(buf: []const u8) !Event {
-        if (buf.len == 0) return error.UnknownEvent;
-
-        const c = buf[0];
-
-        // Handle Ctrl+C
-        if (c == 3) return .interrupt;
-
-        // Handle printable characters and whitespace
-        if (ascii.isPrint(c) or ascii.isWhitespace(c)) {
-            return .{ .key = @enumFromInt(c) };
-        }
-
-        // Handle escape sequences
-        if (c == cc.esc) {
-            if (buf.len == 1) return .{ .key = .esc };
-            if (buf[1] == '[') {
-                return parseCSI(buf[2..]);
-            }
-        }
-
-        return error.UnknownEvent;
-    }
-
-    fn parseCSI(buf: []const u8) !Event {
-        if (buf.len == 0) return error.UnknownEvent;
-
-        // Arrow keys
-        switch (buf[0]) {
-            'A' => return .{ .key = .arrow_up },
-            'B' => return .{ .key = .arrow_down },
-            'C' => return .{ .key = .arrow_right },
-            'D' => return .{ .key = .arrow_left },
-            '<' => return parseSgrMouse(buf[1..]),
-            '0'...'9' => {
-                // CSI number sequences (cursor pos, function keys)
-                return parseCSINumber(buf);
-            },
-            else => {},
-        }
-        return error.UnknownEvent;
-    }
-
-    fn parseCSINumber(buf: []const u8) !Event {
-        // Look for cursor position response: <row>;<col>R
-        if (std.mem.indexOfScalar(u8, buf, 'R')) |r_pos| {
-            if (std.mem.indexOfScalar(u8, buf[0..r_pos], ';')) |sep| {
-                const row = std.fmt.parseInt(u16, buf[0..sep], 10) catch return error.UnknownEvent;
-                const col = std.fmt.parseInt(u16, buf[sep + 1 .. r_pos], 10) catch return error.UnknownEvent;
-                return .{ .cursor_pos = .{ .row = row, .col = col } };
-            }
-        }
-
-        // Function keys: <num>~
-        if (std.mem.indexOfScalar(u8, buf, '~')) |tilde_pos| {
-            const num = std.fmt.parseInt(u8, buf[0..tilde_pos], 10) catch return error.UnknownEvent;
-            if (Event.Key.fromCsiNum(num, '~')) |key| {
-                return .{ .key = key };
-            }
-        }
-
-        return error.UnknownEvent;
-    }
-
-    fn parseSgrMouse(buf: []const u8) !Event {
-        // SGR mouse: <button>;<col>;<row>M or <button>;<col>;<row>m
-        var pos: usize = 0;
-
-        // Parse button
-        const button_end = std.mem.indexOfScalar(u8, buf[pos..], ';') orelse return error.UnknownEvent;
-        const button_code = buf[pos..][0..button_end];
-        const button: Event.MouseButton = switch (button_code[0]) {
-            '0' => .left,
-            '1' => .middle,
-            '2' => .right,
-            '6' => |b| if (button_code.len > 1 and b == '6') switch (button_code[1]) {
-                '4' => .scroll_up,
-                '5' => .scroll_down,
-                else => .unknown,
-            } else .unknown,
-            else => .unknown,
-        };
-        pos += button_end + 1;
-
-        // Parse column
-        const col_end = std.mem.indexOfScalar(u8, buf[pos..], ';') orelse return error.UnknownEvent;
-        const col = std.fmt.parseInt(u16, buf[pos..][0..col_end], 10) catch return error.UnknownEvent;
-        pos += col_end + 1;
-
-        // Parse row and state
-        var row_end = buf.len - pos;
-        var button_state: Event.MouseButtonState = .unknown;
-        for (buf[pos..], 0..) |ch, i| {
-            if (ch == 'M') {
-                row_end = i;
-                button_state = .pressed;
-                break;
-            } else if (ch == 'm') {
-                row_end = i;
-                button_state = .released;
-                break;
-            }
-        }
-        const row = std.fmt.parseInt(u16, buf[pos..][0..row_end], 10) catch return error.UnknownEvent;
-
-        return .{ .mouse = .{ .button = button, .row = row, .col = col, .button_state = button_state } };
-    }
 };
 
 /// Query the terminal size for a given file descriptor.

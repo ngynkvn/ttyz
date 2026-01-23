@@ -113,14 +113,15 @@ pub const Screen = struct {
     pub const ReadError = error{ReadFailed};
 
     /// Buffered writer interface for compatibility with existing code.
+    /// Note: Interface stores a direct pointer to Screen, avoiding self-referential issues.
     pub const Writer = struct {
         pub const Interface = struct {
             pub fn write(self: *Interface, data: []const u8) WriteError!usize {
-                return self.writer.screen.writeRaw(data);
+                return self.screen.writeRaw(data);
             }
 
             pub fn writeAll(self: *Interface, data: []const u8) WriteError!void {
-                _ = try self.writer.screen.writeRaw(data);
+                _ = try self.screen.writeRaw(data);
             }
 
             pub fn print(self: *Interface, comptime fmt: []const u8, args: anytype) WriteError!void {
@@ -130,19 +131,17 @@ pub const Screen = struct {
             }
 
             pub fn flush(self: *Interface) WriteError!void {
-                try self.writer.screen.flushBuffer();
+                try self.screen.flushBuffer();
             }
 
-            writer: *Writer,
+            screen: *Screen,
         };
 
         pub fn init(screen: *Screen) Writer {
-            var w = Writer{
+            return .{
                 .screen = screen,
-                .interface = undefined,
+                .interface = .{ .screen = screen },
             };
-            w.interface = .{ .writer = &w };
-            return w;
         }
 
         screen: *Screen,

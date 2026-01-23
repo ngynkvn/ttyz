@@ -720,9 +720,11 @@ pub fn panicTty(msg: []const u8, ra: ?usize) noreturn {
     std.debug.defaultPanic(msg, ra);
 }
 
-/// Generic event/render loop runner.
+/// Generic event/render loop runner using async std.Io.
 ///
 /// Simplifies the common pattern of polling events, handling them, and rendering.
+/// Uses std.Io for non-blocking I/O instead of spawning threads.
+///
 /// The app type `T` must implement:
 /// - `handleEvent(*T, Event) bool` - Handle an event. Return false to stop the loop.
 /// - `render(*T, *Screen) !void` - Render the current frame.
@@ -757,7 +759,6 @@ pub fn panicTty(msg: []const u8, ra: ?usize) noreturn {
 /// }
 /// ```
 pub fn Runner(comptime T: type) type {
-    comptime checkHasFns(T);
     return struct {
         const Self = @This();
 
@@ -776,11 +777,19 @@ pub fn Runner(comptime T: type) type {
         }
 
         /// Run the event/render loop with custom options.
+        /// Uses std.Io for async input handling instead of threads.
         pub fn runWithOptions(app: *T, proc: std.process.Init, options: Options) !void {
+            const io = proc.io;
             var screen = try Screen.init();
             defer _ = screen.deinit() catch {};
 
-            try screen.start();
+            // Set up WINCH signal handler
+            const sa = std.posix.Sigaction{
+                .flags = std.posix.SA.RESTART,
+                .mask = std.posix.sigemptyset(),
+                .handler = .{ .handler = Screen.Signals.handleSignals },
+            };
+            std.posix.sigaction(std.posix.SIG.WINCH, &sa, null);
 
             // Call app.init if it exists
             if (@hasDecl(T, "init")) {
@@ -794,9 +803,21 @@ pub fn Runner(comptime T: type) type {
                 }
             }
 
-            const frame_ms = 1000 / options.fps;
+            const frame_duration = std.Io.Duration.fromMilliseconds(1000 / options.fps);
 
             while (screen.running) {
+                // Check for window resize signal
+                if (Screen.Signals.WINCH) {
+                    if (screen.querySize()) |ws| {
+                        screen.width = ws.col;
+                        screen.height = ws.row;
+                    } else |_| {}
+                    @atomicStore(bool, &Screen.Signals.WINCH, false, .seq_cst);
+                }
+
+                // Read input (non-blocking due to termios settings)
+                readInput(&screen);
+
                 // Poll and handle all pending events
                 while (screen.pollEvent()) |event| {
                     if (!app.handleEvent(event)) {
@@ -815,24 +836,31 @@ pub fn Runner(comptime T: type) type {
                 try app.render(&screen);
                 try screen.flush();
 
-                // Frame timing
-                proc.io.sleep(std.Io.Duration.fromMilliseconds(frame_ms), .awake) catch {};
+                // Frame timing using std.Io.sleep
+                io.sleep(frame_duration, .awake) catch {};
+            }
+        }
+
+        /// Read input from the TTY (non-blocking due to termios VMIN=0, VTIME=1)
+        fn readInput(screen: *Screen) void {
+            var input_buffer: [32]u8 = undefined;
+
+            const rc = system.read(screen.fd, &input_buffer, input_buffer.len);
+            if (rc <= 0) return;
+
+            const bytes_read: usize = @intCast(rc);
+
+            // Process each byte through the parser
+            for (input_buffer[0..bytes_read]) |byte| {
+                const action = screen.input_parser.advance(byte);
+                if (screen.actionToEvent(action, byte)) |ev| {
+                    screen.event_queue.pushBackBounded(ev) catch {};
+                }
             }
         }
     };
 }
 
-fn checkHasFns(comptime T: type) void {
-    _ = T;
-    comptime {
-        // const fn_list = [_][]const u8{ "init", "handleEvent", "render", "deinit" };
-        // for (fn_list) |fn_name| {
-        //     if (!@hasDecl(T, fn_name)) {
-        //         @compileError(std.fmt.comptimePrint("T must have a {s} function", .{fn_name}));
-        //     }
-        // }
-    }
-}
 test {
     std.testing.refAllDecls(@This());
 }

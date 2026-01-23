@@ -429,25 +429,13 @@ pub const Screen = struct {
                 return null;
             },
             'M', 'm' => {
-                // SGR mouse (private marker '<')
+                // SGR extended mouse coordinates (private marker '<')
+                // Format: CSI < Cb ; Cx ; Cy M (press) or m (release)
                 if (p.private_marker == '<' and params.len >= 3) {
-                    const button_code = params[0];
-                    const col = params[1];
-                    const row = params[2];
-                    const button: Event.MouseButton = switch (button_code & 0x43) {
-                        0 => .left,
-                        1 => .middle,
-                        2 => .right,
-                        64 => .scroll_up,
-                        65 => .scroll_down,
-                        else => .unknown,
-                    };
-                    return .{ .mouse = .{
-                        .button = button,
-                        .row = row,
-                        .col = col,
-                        .button_state = if (final == 'M') .pressed else .released,
-                    } };
+                    var mouse = Event.Mouse.fromButtonCode(params[0], final);
+                    mouse.col = params[1];
+                    mouse.row = params[2];
+                    return .{ .mouse = mouse };
                 }
                 return null;
             },
@@ -633,20 +621,67 @@ pub const Event = union(enum) {
         }
     };
     /// Mouse button identifiers.
-    pub const MouseButton = enum { left, middle, right, scroll_up, scroll_down, unknown };
+    pub const MouseButton = enum { left, middle, right, scroll_up, scroll_down, none, unknown };
 
     /// State of a mouse button.
-    pub const MouseButtonState = enum { pressed, released, motion, unknown };
+    pub const MouseButtonState = enum { pressed, released, motion };
 
     /// Cursor position in the terminal.
     pub const CursorPos = struct { row: usize, col: usize };
 
-    /// Mouse event data.
+    /// Mouse event data (SGR extended coordinates).
+    /// See: https://invisible-island.net/xterm/ctlseqs/ctlseqs.html#h3-Extended-coordinates
     pub const Mouse = struct {
         button: MouseButton,
         row: usize,
         col: usize,
         button_state: MouseButtonState,
+        /// Shift key was held during the event.
+        shift: bool = false,
+        /// Meta/Alt key was held during the event.
+        meta: bool = false,
+        /// Ctrl key was held during the event.
+        ctrl: bool = false,
+
+        /// Parse SGR mouse button code into button and modifiers.
+        /// Button code format:
+        /// - bits 0-1: button (0=left, 1=middle, 2=right)
+        /// - bit 2: shift
+        /// - bit 3: meta
+        /// - bit 4: ctrl
+        /// - bit 5: motion
+        /// - bits 6-7: scroll wheel (64=up, 65=down)
+        pub fn fromButtonCode(code: usize, final: u8) Mouse {
+            const is_motion = (code & 32) != 0;
+            const is_scroll = (code & 64) != 0;
+
+            const button: MouseButton = if (is_scroll)
+                if ((code & 1) != 0) .scroll_down else .scroll_up
+            else switch (code & 3) {
+                0 => .left,
+                1 => .middle,
+                2 => .right,
+                3 => .none, // release in X10 mode, shouldn't happen in SGR
+                else => .unknown,
+            };
+
+            const button_state: MouseButtonState = if (is_motion)
+                .motion
+            else if (final == 'm')
+                .released
+            else
+                .pressed;
+
+            return .{
+                .button = button,
+                .row = 0,
+                .col = 0,
+                .button_state = button_state,
+                .shift = (code & 4) != 0,
+                .meta = (code & 8) != 0,
+                .ctrl = (code & 16) != 0,
+            };
+        }
     };
 
     /// A key was pressed.

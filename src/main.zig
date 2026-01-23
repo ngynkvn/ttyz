@@ -43,6 +43,9 @@ pub fn main(init: std.process.Init) !void {
     // Cursor/mouse position tracking
     var mouse_row: usize = 0;
     var mouse_col: usize = 0;
+    var mouse_button: ttyz.Event.MouseButton = .none;
+    var mouse_state: ttyz.Event.MouseButtonState = .released;
+    var mouse_mods: struct { shift: bool = false, meta: bool = false, ctrl: bool = false } = .{};
     var cursor_row: usize = 0;
     var cursor_col: usize = 0;
 
@@ -92,8 +95,21 @@ pub fn main(init: std.process.Init) !void {
         // Title and instructions
         try s.print(E.BOLD ++ "ttyz Layout Demo" ++ E.RESET_STYLE ++ "\r\n\r\n", .{});
         try s.print("Active: " ++ E.FG_GREEN ++ "{s}" ++ E.RESET_STYLE ++ "  ", .{if (active_panel == .left) "Left" else "Right"});
-        try s.print("Mouse: " ++ E.FG_YELLOW ++ "({d}, {d})" ++ E.RESET_STYLE ++ "  ", .{ mouse_col, mouse_row });
         try s.print("Cursor: " ++ E.FG_MAGENTA ++ "({d}, {d})" ++ E.RESET_STYLE ++ "\r\n", .{ cursor_col, cursor_row });
+
+        // Mouse info with SGR details
+        try s.print("Mouse: " ++ E.FG_YELLOW ++ "({d}, {d})" ++ E.RESET_STYLE, .{ mouse_col, mouse_row });
+        try s.print("  btn=" ++ E.FG_CYAN ++ "{s}" ++ E.RESET_STYLE, .{@tagName(mouse_button)});
+        try s.print(" {s}", .{@tagName(mouse_state)});
+        if (mouse_mods.shift or mouse_mods.meta or mouse_mods.ctrl) {
+            try s.print(" [", .{});
+            if (mouse_mods.ctrl) try s.print("C", .{});
+            if (mouse_mods.meta) try s.print("M", .{});
+            if (mouse_mods.shift) try s.print("S", .{});
+            try s.print("]", .{});
+        }
+        try s.print("\r\n", .{});
+
         try s.print("Size input: " ++ E.FG_CYAN ++ "{s}" ++ E.RESET_STYLE ++ "\r\n\r\n", .{s.textinput.items});
         try s.print(E.DIM ++ "Type WxH (e.g. 10x5) + Enter to resize active panel\r\n", .{});
         try s.print("Tab to switch panel, q to quit" ++ E.RESET_STYLE ++ "\r\n\r\n", .{});
@@ -157,6 +173,9 @@ pub fn main(init: std.process.Init) !void {
                 .mouse => |m| {
                     mouse_row = m.row;
                     mouse_col = m.col;
+                    mouse_button = m.button;
+                    mouse_state = m.button_state;
+                    mouse_mods = .{ .shift = m.shift, .meta = m.meta, .ctrl = m.ctrl };
                 },
                 .focus => |focused| {
                     std.log.info("focus changed: {}", .{focused});

@@ -1,7 +1,19 @@
+//! Text utilities for terminal output formatting.
+//!
+//! Provides common text operations like padding, centering, truncation,
+//! and display width calculation for terminal output.
+//!
+//! ## Example
+//! ```zig
+//! var buf: [32]u8 = undefined;
+//! const padded = text.padRight("Hi", 10, &buf);  // "Hi        "
+//! const width = text.displayWidth("Hello");      // 5
+//! ```
+
 const std = @import("std");
 const E = @import("esc.zig");
 
-/// Text utilities for terminal output
+/// Text utilities for terminal output.
 pub const Text = @This();
 
 /// Center text within a given width, padding with spaces

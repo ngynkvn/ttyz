@@ -1,20 +1,68 @@
+//! ttyz - Terminal User Interface Library for Zig
+//!
+//! A library for building terminal user interfaces with support for:
+//! - Raw mode terminal I/O with automatic state restoration
+//! - Keyboard, mouse, and focus event handling
+//! - VT100/xterm escape sequences
+//! - Immediate-mode layout engine
+//! - Kitty graphics protocol
+//! - Box drawing and text utilities
+//!
+//! ## Quick Start
+//! ```zig
+//! var screen = try ttyz.Screen.init();
+//! defer _ = screen.deinit() catch {};
+//! try screen.start();
+//!
+//! while (screen.running) {
+//!     while (screen.pollEvent()) |event| {
+//!         // handle events
+//!     }
+//!     try screen.clearScreen();
+//!     try screen.print("Hello, world!\n", .{});
+//!     try screen.flush();
+//! }
+//! ```
+
 const std = @import("std");
 const assert = std.debug.assert;
 
 const posix = std.posix;
 const system = posix.system;
 
+/// Kitty graphics protocol for terminal image display.
 pub const kitty = @import("kitty.zig");
+
+/// Pixel-level RGBA canvas drawing with Kitty output.
 pub const draw = @import("draw.zig");
+
+/// Box drawing with Unicode characters.
 pub const termdraw = @import("termdraw.zig");
+
+/// Immediate-mode UI layout engine.
 pub const layout = @import("layout.zig");
+
+/// Comptime color format string parser for inline ANSI colors.
 pub const colorz = @import("colorz.zig");
+
+/// Text utilities for padding, centering, and display width.
 pub const text = @import("text.zig");
+
+/// VT100/xterm escape sequence constants.
 pub const E = @import("esc.zig");
+
+/// Generic bounded ring buffer queue.
 pub const BoundedQueue = @import("bounded_queue.zig").BoundedQueue;
 
+/// Library configuration constants.
+/// These control the default behavior when initializing a Screen.
+///
+/// Fields:
+/// - `HANDLE_SIGINT`: If true, the library handles SIGINT (Ctrl+C) internally.
+/// - `START_SEQUENCE`: Escape sequence sent when entering raw mode.
+/// - `EXIT_SEQUENCE`: Escape sequence sent when exiting raw mode.
+/// - `TTY_HANDLE`: Path to the TTY device.
 pub const CONFIG = .{
-    // Disable tty's SIGINT handling,
     .HANDLE_SIGINT = true,
     .START_SEQUENCE = E.ENTER_ALT_SCREEN ++ E.CURSOR_INVISIBLE ++ E.ENABLE_MOUSE_TRACKING,
     .EXIT_SEQUENCE = E.EXIT_ALT_SCREEN ++ E.CURSOR_VISIBLE ++ E.DISABLE_MOUSE_TRACKING,
@@ -27,21 +75,62 @@ const ascii = std.ascii;
 
 var orig_termios: ?posix.termios = null;
 var tty_handle: ?std.fs.File.Handle = null;
+
+/// The main interface for terminal I/O operations.
+///
+/// Screen manages raw mode initialization, event handling, and output buffering.
+/// It provides thread-safe methods for writing to the terminal and polling for
+/// input events.
+///
+/// ## Example
+/// ```zig
+/// var screen = try Screen.init();
+/// defer _ = screen.deinit() catch {};
+///
+/// try screen.start();  // Start the I/O thread
+///
+/// while (screen.running) {
+///     while (screen.pollEvent()) |event| {
+///         switch (event) {
+///             .key => |k| if (k == .q) screen.running = false,
+///             else => {},
+///         }
+///     }
+///     try screen.clearScreen();
+///     try screen.home();
+///     try screen.print("Size: {}x{}\n", .{screen.width, screen.height});
+///     try screen.flush();
+/// }
+/// ```
 pub const Screen = struct {
+    /// The underlying TTY file handle.
     tty: std.fs.File,
+    /// Terminal width in columns.
     width: u16,
+    /// Terminal height in rows.
     height: u16,
+    /// Internal output buffer.
     buffer: [4096]u8,
+    /// Last read data (internal use).
     last_read: []u8,
+    /// Mutex for thread-safe output operations.
     lock: std.Thread.Mutex,
+    /// Buffered writer for terminal output.
     writer: std.fs.File.Writer,
+    /// Queue for pending input events.
     event_queue: BoundedQueue(Event, 32),
+    /// Background I/O thread handle.
     io_thread: ?std.Thread,
+    /// Set to false to stop the main loop and I/O thread.
     running: bool,
-    // TODO: app state
+    /// Application state toggle (for demo purposes).
     toggle: bool,
+    /// Buffer for text input.
     textinput_buffer: [32]u8,
+    /// Text input accumulator.
     textinput: std.ArrayList(u8),
+
+    /// Error type for Screen write operations.
     pub const Error = std.posix.WriteError;
 
     /// Enter "raw mode", returning a struct that wraps around the provided tty file
@@ -58,6 +147,8 @@ pub const Screen = struct {
         return try initFrom(tty);
     }
 
+    /// Initialize a Screen from an existing TTY file handle.
+    /// This allows using a custom TTY instead of the default `/dev/tty`.
     pub fn initFrom(tty: std.fs.File) !Screen {
         tty_handle = tty.handle;
         const orig = try posix.tcgetattr(tty.handle);
@@ -113,6 +204,9 @@ pub const Screen = struct {
         return self;
     }
 
+    /// Clean up and restore terminal to its original state.
+    /// Stops the I/O thread, restores terminal settings, and closes the TTY.
+    /// Returns the errno from restoring terminal settings.
     pub fn deinit(self: *Screen) !posix.E {
         self.running = false;
         if (self.io_thread) |thread| thread.join();
@@ -145,6 +239,9 @@ pub const Screen = struct {
         }
     };
 
+    /// Start the background I/O thread for event handling.
+    /// This spawns a thread that reads input events and handles window resize signals.
+    /// Call this after `init()` to enable event polling via `pollEvent()`.
     pub fn start(self: *Screen) !void {
         const sa = std.posix.Sigaction{
             .flags = std.posix.SA.RESTART,
@@ -158,7 +255,9 @@ pub const Screen = struct {
         };
     }
 
-    pub fn ioLoop(self: *Screen) !void {
+    /// Internal I/O loop run by the background thread.
+    /// Reads input, parses events, and handles window resize signals.
+    fn ioLoop(self: *Screen) !void {
         var input_buffer = std.mem.zeroes([32]u8);
         var reader = self.tty.readerStreaming(&input_buffer);
         while (self.running) {
@@ -180,77 +279,102 @@ pub const Screen = struct {
         }
     }
 
+    /// Poll for the next input event.
+    /// Returns `null` if no events are available.
+    /// Events are queued by the background I/O thread started with `start()`.
     pub fn pollEvent(self: *Screen) ?Event {
         return self.event_queue.popFront();
     }
 
-    /// Move cursor to (x, y) (column, row)
-    /// (0, 0) is defined as the bottom left corner of the terminal.
+    /// Move cursor to the specified row and column.
+    /// Coordinates are 1-based: (1, 1) is the top-left corner.
     pub fn goto(self: *Screen, r: u16, c: u16) !void {
         try self.print(E.GOTO, .{ r, c });
     }
 
+    /// Send a cursor position query to the terminal.
+    /// The response will be delivered as a `cursor_pos` event.
     pub fn queryPos(self: *Screen) !void {
         self.lock.lock();
         defer self.lock.unlock();
         _ = try self.tty.write(E.REPORT_CURSOR_POS);
     }
 
+    /// Query the current terminal size.
+    /// Returns a `winsize` struct with `row`, `col`, `xpixel`, and `ypixel` fields.
     pub fn querySize(self: *Screen) !posix.winsize {
         self.lock.lock();
         defer self.lock.unlock();
         return try queryHandleSize(self.tty.handle);
     }
 
-    /// read input
+    /// Read raw input bytes into the provided buffer.
+    /// Returns the number of bytes read.
     pub fn read(self: *Screen, buffer: []u8) !usize {
         return self.tty.read(buffer);
     }
 
-    /// print to screen via fmt string
+    /// Print formatted output to the terminal.
+    /// Uses the same format syntax as `std.fmt`.
     pub fn print(self: *Screen, comptime fmt: []const u8, args: anytype) !void {
         try self.printArgs(fmt, args, .{});
     }
 
-    /// raw write
+    /// Write raw bytes to the terminal.
+    /// Returns the number of bytes written. Thread-safe.
     pub fn write(self: *Screen, buf: []const u8) !usize {
         self.lock.lock();
         defer self.lock.unlock();
         return try self.writer.interface.write(buf);
     }
 
+    /// Write all bytes to the terminal.
+    /// Thread-safe.
     pub fn writeAll(self: *Screen, buf: []const u8) !void {
         self.lock.lock();
         defer self.lock.unlock();
         try self.writer.interface.writeAll(buf);
     }
 
-    pub const WriteArgs = struct { sleep: usize = 0 };
+    /// Options for `printArgs`.
+    pub const WriteArgs = struct {
+        /// Optional sleep duration in nanoseconds before writing.
+        sleep: usize = 0,
+    };
+
+    /// Print formatted output with additional options.
+    /// Thread-safe.
     pub fn printArgs(self: *Screen, comptime fmt: []const u8, args: anytype, wargs: WriteArgs) !void {
         self.lock.lock();
         defer self.lock.unlock();
-        // TODO: check if this will exclude this code from being added at comptime
         if (wargs.sleep != 0) std.Thread.sleep(wargs.sleep);
         try self.writer.interface.print(fmt, args);
     }
 
+    /// Flush the output buffer to the terminal.
+    /// Call this after a series of writes to ensure output is displayed.
     pub fn flush(self: *Screen) !void {
         self.lock.lock();
         defer self.lock.unlock();
         return self.writer.interface.flush();
     }
 
+    /// Clear the entire screen.
     pub fn clearScreen(self: *Screen) !void {
         try self.writeAll(E.CLEAR_SCREEN);
     }
 
+    /// Move the cursor to the home position (top-left corner).
     pub fn home(self: *Screen) !void {
         try self.writeAll(E.HOME);
     }
 };
 
+/// Input event from the terminal.
+/// Events are polled using `Screen.pollEvent()`.
 pub const Event = union(enum) {
-    // ASCII letters
+    /// Keyboard key codes.
+    /// Includes ASCII characters, function keys, and navigation keys.
     pub const Key = enum(u8) {
         // zig fmt: off
         backspace = 8, tab = 9,
@@ -325,14 +449,32 @@ pub const Event = union(enum) {
             return null;
         }
     };
+    /// Mouse button identifiers.
     pub const MouseButton = enum { left, middle, right, scroll_up, scroll_down, unknown };
+
+    /// State of a mouse button.
     pub const MouseButtonState = enum { pressed, released, motion, unknown };
+
+    /// Cursor position in the terminal.
     pub const CursorPos = struct { row: usize, col: usize };
-    pub const Mouse = struct { button: MouseButton, row: usize, col: usize, button_state: MouseButtonState };
+
+    /// Mouse event data.
+    pub const Mouse = struct {
+        button: MouseButton,
+        row: usize,
+        col: usize,
+        button_state: MouseButtonState,
+    };
+
+    /// A key was pressed.
     key: Key,
+    /// Response to a cursor position query.
     cursor_pos: CursorPos,
+    /// Mouse button or movement event.
     mouse: Mouse,
+    /// Terminal focus changed (true = gained focus, false = lost focus).
     focus: bool,
+    /// Ctrl+C was pressed.
     interrupt: void,
 };
 
@@ -410,6 +552,8 @@ const Parser = struct {
     }
 };
 
+/// Query the terminal size for a given file handle.
+/// Returns a `winsize` struct with terminal dimensions.
 pub fn queryHandleSize(handle: std.fs.File.Handle) !posix.winsize {
     var ws: posix.winsize = .{ .row = 0, .col = 0, .xpixel = 0, .ypixel = 0 };
     const result = system.ioctl(handle, posix.T.IOCGWINSZ, @intFromPtr(&ws));
@@ -417,8 +561,13 @@ pub fn queryHandleSize(handle: std.fs.File.Handle) !posix.winsize {
     return ws;
 }
 
+/// Custom panic handler that restores terminal state before panicking.
+/// Assign to `pub const panic = ttyz.panic;` in your root source file
+/// to ensure the terminal is restored even on panics.
 pub const panic = std.debug.FullPanic(panicTty);
 
+/// Internal panic handler implementation.
+/// Restores terminal state before calling the default panic handler.
 pub fn panicTty(msg: []const u8, ra: ?usize) noreturn {
     if (tty_handle) |handle| {
         const tty = std.fs.File{ .handle = handle };

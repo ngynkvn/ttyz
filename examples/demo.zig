@@ -180,9 +180,8 @@ const Demo = struct {
 
         // Grayscale (232-255)
         try s.print(E.GOTO, .{ start_row + 7, @as(u16, 3) });
-        c = 232;
-        while (c < 256) : (c += 1) {
-            try s.print(E.SET_BG_256 ++ " " ++ E.RESET_STYLE, .{c});
+        for (232..256) |gray| {
+            try s.print(E.SET_BG_256 ++ " " ++ E.RESET_STYLE, .{gray});
         }
 
         // True color gradient

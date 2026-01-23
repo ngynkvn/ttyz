@@ -1,19 +1,50 @@
+//! Immediate-mode layout engine for terminal UIs.
+//!
+//! Inspired by Clay (https://github.com/nicbarker/clay), this module provides
+//! a hierarchical layout system where elements are opened and closed in pairs.
+//!
+//! ## Usage
+//! ```zig
+//! const Root = struct {
+//!     pub var props = layout.NodeProps{ .sizing = .As(.fit, .fit) };
+//!     pub fn render(ctx: *layout.Context) void {
+//!         ctx.Text("Hello, world!");
+//!     }
+//! };
+//!
+//! var ctx = layout.Context.init(allocator, &screen);
+//! const commands = try ctx.render(Root);
+//! defer allocator.free(commands);
+//! ```
+
 const std = @import("std");
 const ttyz = @import("ttyz.zig");
 const math = std.math;
 const lossyCast = math.lossyCast;
 
+/// A command to render a node at its calculated position.
 const RenderCommand = struct {
     node: Node,
 };
 
+/// Layout context that manages the node tree and performs layout calculations.
+///
+/// Use `OpenElement()` and `CloseElement()` pairs to build a hierarchy,
+/// then call `render()` to get a list of render commands with calculated positions.
 pub const Context = struct {
+    /// Memory allocator used for node storage and render commands.
     allocator: std.mem.Allocator,
+    /// Reference to the screen for dimension queries.
     screen: *ttyz.Screen,
+    /// Storage for all nodes in the layout tree.
     nodes: std.MultiArrayList(Node),
+    /// Storage for child node indices.
     childlist: std.ArrayList([32]Node.Index),
+    /// Index of the currently open element (for nesting).
     current_node: Node.Index = .nil,
 
+    /// Begin a new layout frame, clearing all previous nodes.
+    /// Returns self for method chaining.
     pub fn begin(self: *Context) *Context {
         self.current_node = .nil;
         self.nodes.shrinkRetainingCapacity(0);
@@ -21,6 +52,9 @@ pub const Context = struct {
         return self;
     }
 
+    /// End the layout frame and calculate final positions.
+    /// Returns a slice of render commands with calculated positions.
+    /// The caller owns the returned slice and must free it with the allocator.
     pub fn end(self: *Context) ![]const RenderCommand {
         var renderCommands = std.ArrayList(RenderCommand).empty;
         var parent_child: [16][16:.nil]Node.Index = undefined;
@@ -68,22 +102,28 @@ pub const Context = struct {
         return renderCommands.toOwnedSlice(self.allocator);
     }
 
+    /// Clean up resources used by the context.
     pub fn deinit(self: *Context) void {
         self.nodes.deinit(self.allocator);
     }
 
+    /// Create an iterator over all nodes in the tree.
     pub fn nodeIterator(self: *Context) NodeIterator {
         return NodeIterator{ .context = self, .index = 0 };
     }
+    /// Iterator for traversing nodes in the layout tree.
     const NodeIterator = struct {
         context: *Context,
         index: usize,
+
+        /// Get the next node that has the specified parent.
         pub fn nextWhereParent(self: *NodeIterator, parent_idx: ?Node.Index) ?struct { Node, usize } {
             while (self.next()) |node| {
                 if (node.parent == parent_idx) return .{ node, self.index - 1 };
             }
             return null;
         }
+        /// Get the next node in the tree, or null if exhausted.
         pub fn next(self: *NodeIterator) ?Node {
             if (self.index >= self.context.nodes.len) return null;
             const node = self.context.nodes.get(self.index);
@@ -92,6 +132,9 @@ pub const Context = struct {
         }
     };
 
+    /// Open a new element with the given properties.
+    /// Must be paired with a corresponding `CloseElement()` call.
+    /// Elements can be nested to create a hierarchy.
     pub fn OpenElement(self: *Context, np: NodeProps) void {
         const current_node = self.current_node;
         var node: Node = undefined;
@@ -115,6 +158,9 @@ pub const Context = struct {
         self.current_node = .from(node_idx);
     }
 
+    /// Close the current element and update parent sizing.
+    /// Calculates the element's final dimensions based on its children
+    /// and updates the parent's size accordingly.
     pub fn CloseElement(self: *Context) void {
         const curr_idx = self.current_node;
         var cn = self.nodes.get(curr_idx.index());
@@ -147,10 +193,13 @@ pub const Context = struct {
         self.nodes.set(parent_idx.index(), pn);
     }
 
+    /// Count the number of direct children of a given parent node.
     pub fn countChildren(self: *Context, parent_idx: Node.Index) usize {
         return std.mem.count(Node.Index, self.nodes.items(.parent), &.{parent_idx});
     }
 
+    /// Add a text element as a child of the current element.
+    /// This is a convenience method that opens and immediately closes a text node.
     pub fn Text(self: *Context, text: []const u8) void {
         self.OpenElement(.{
             .tag = .text,
@@ -159,6 +208,7 @@ pub const Context = struct {
         self.CloseElement();
     }
 
+    /// Initialize a new layout context with the given allocator and screen.
     pub fn init(allocator: std.mem.Allocator, screen: *ttyz.Screen) Context {
         return .{
             .screen = screen,
@@ -168,6 +218,8 @@ pub const Context = struct {
         };
     }
 
+    /// Render a root element type and return the calculated render commands.
+    /// The root type must have `props` (NodeProps) and `render` (fn(*Context) void) declarations.
     pub fn render(self: *Context, root: type) ![]const RenderCommand {
         _ = self.begin();
         self.OpenElement(root.props);
@@ -198,15 +250,27 @@ pub const NodeProps = struct {
     text: ?[]const u8 = null,
 };
 
+/// A node in the layout tree representing a UI element.
 pub const Node = struct {
+    /// Optional unique identifier for this node.
     id: ?u8 = null,
+    /// The type of this node (text or box).
     tag: Tag = .box,
+    /// Index of the parent node in the tree.
     parent: Node.Index = .nil,
+    /// Calculated UI properties (position and size).
     ui: UIElement,
+    /// Visual styling properties.
     style: Style,
+    /// Layout configuration for this node.
     layout: LayoutConfig,
+    /// Text content (for text nodes).
     text: ?[]const u8 = null,
+
+    /// Node type discriminator.
     const Tag = enum { text, box };
+
+    /// Index type for referencing nodes in the tree.
     const Index = enum(u8) {
         nil = 0,
         _,
@@ -223,12 +287,18 @@ pub const Node = struct {
     };
 };
 
+/// Calculated UI properties representing an element's position and size.
 pub const UIElement = struct {
+    /// X position (column) in terminal coordinates.
     x: u16,
+    /// Y position (row) in terminal coordinates.
     y: u16,
+    /// Width in terminal columns.
     width: u16,
+    /// Height in terminal rows.
     height: u16,
 
+    /// Initialize a UIElement from a node's layout configuration.
     pub fn init(node: Node) UIElement {
         var ui = UIElement{ .x = 1, .y = 1, .width = 0, .height = 0 };
         const layout = node.layout;
@@ -244,33 +314,38 @@ pub const UIElement = struct {
     }
 };
 
+/// Internal layout configuration for a node.
 const LayoutConfig = struct {
-    /// Controls the sizing of this element inside it's parent container, including FIT, GROW, PERCENT and FIXED sizing.
+    /// Controls the sizing of this element inside it's parent container.
     sizing: Sizing = .As(.fit, .fit),
-    /// Controls "padding" in pixels, which is a gap between the bounding box of this element and where its children will be placed.
-    padding: Padding = .{}, // Controls "padding" in pixels, which is a gap between the bounding box of this element and where its children will be placed.
-    /// Controls the gap in pixels between child elements along the layout axis (horizontal gap for LEFT_TO_RIGHT, vertical gap for TOP_TO_BOTTOM).
+    /// Controls padding (gap between bounding box and children).
+    padding: Padding = .{},
+    /// Controls the gap between child elements along the layout axis.
     child_gap: u16 = 0,
     /// Controls how child elements are aligned on each axis.
     child_alignment: ChildAlignment = .{ .x = .left, .y = .start },
-    /// Controls the direction in which child elements will be automatically laid out.
+    /// Controls the direction in which child elements are laid out.
     layout_direction: LayoutDirection = .top_down,
 };
 
+/// Visual styling properties for a node.
 const Style = struct {
-    /// Controls the background color of this element.
+    /// Background color as RGBA (optional).
     color: ?[4]u8 = null,
 };
 
+/// Sizing configuration for width and height.
 const Sizing = struct {
     width: SizingVariant,
     height: SizingVariant,
 
+    /// Create a sizing configuration from width and height variants.
     pub fn As(width: SizingVariant, height: SizingVariant) Sizing {
         return .{ .width = width, .height = height };
     }
 };
 
+/// Sizing variant specifying how an element should be sized.
 const SizingVariant = union(enum) {
     /// Size of this element as a percentage of its parent's size.
     percent: f32,
@@ -295,38 +370,58 @@ const SizingVariant = union(enum) {
     }
 };
 
+/// Padding configuration for an element's interior spacing.
 const Padding = struct {
     top: u16 = 0,
     right: u16 = 0,
     bottom: u16 = 0,
     left: u16 = 0,
 
+    /// Create padding with individual values for each side.
     pub fn From(top: u16, right: u16, bottom: u16, left: u16) Padding {
         return .{ .top = top, .right = right, .bottom = bottom, .left = left };
     }
 
+    /// Create padding with the same value for all sides.
     pub fn All(value: u16) Padding {
         return .{ .top = value, .right = value, .bottom = value, .left = value };
     }
 };
 
+/// Configuration for how children are aligned within their parent.
 const ChildAlignment = struct {
     x: enum { left, center, right },
     y: enum { start, center, end },
 };
 
-const LayoutDirection = enum { left_right, top_down };
+/// Direction for laying out child elements.
+const LayoutDirection = enum {
+    /// Children are laid out horizontally (left to right).
+    left_right,
+    /// Children are laid out vertically (top to bottom).
+    top_down,
+};
 
 const panic = std.debug.panic;
 
+/// A reusable element definition combining properties and a render function.
+/// Can be created from a type with `props` and `render` declarations,
+/// or from a tuple of (NodeProps, render function).
 pub const Element = struct {
+    /// Layout and styling properties for this element.
     props: NodeProps,
+    /// Function to render this element's children.
     renderFn: fn (ctx: *Context) void,
+
+    /// Render this element and its children to the context.
     pub fn render(self: *const Element, ctx: *Context) void {
         ctx.OpenElement(self.props);
         self.renderFn(ctx);
         ctx.CloseElement();
     }
+
+    /// Create an Element from various input types.
+    /// Accepts: a type with props/render, a tuple (NodeProps, fn), or just a render fn.
     pub fn from(root: anytype) Element {
         switch (@TypeOf(root)) {
             type => return fromType(root),
@@ -336,6 +431,7 @@ pub const Element = struct {
         }
     }
 
+    /// Create an Element from a type with `props` and `render` declarations.
     pub fn fromType(comptime root: type) Element {
         if (!@hasDecl(root, "props"))
             @compileError("root must have a props field");
@@ -347,6 +443,7 @@ pub const Element = struct {
         };
     }
 
+    /// Create an Element from a tuple of (NodeProps, render function).
     pub fn fromTuple(comptime root: struct { NodeProps, (fn (ctx: *Context) void) }) Element {
         return .{
             .props = root.@"0",

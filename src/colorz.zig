@@ -1,18 +1,55 @@
+//! Comptime format string parser for inline ANSI colors and cursor control.
+//!
+//! This module provides a wrapper for writers that parses special color codes
+//! at compile time and converts them to ANSI escape sequences.
+//!
+//! ## Format Codes
+//!
+//! **Color codes** (dot prefix):
+//! - `@[.red]`, `@[.green]`, `@[.blue]`, `@[.yellow]`, etc.
+//! - `@[.bright_red]`, `@[.bright_green]`, etc. (bright variants)
+//! - `@[.bold]`, `@[.dim]`, `@[.reset]`
+//!
+//! **Cursor codes** (bang prefix):
+//! - `@[!H]` - Move cursor to home position
+//! - `@[!CI]` - Make cursor invisible
+//! - `@[!CV]` - Make cursor visible
+//! - `@[!S]` - Save cursor position
+//! - `@[!R]` - Restore cursor position
+//!
+//! **Goto code**:
+//! - `@[G<row>;<col>]` - Move cursor to specific position (e.g., `@[G1;2]`)
+//!
+//! ## Example
+//! ```zig
+//! var clr = colorz.wrap(&writer);
+//! try clr.print("@[.green]Success@[.reset]: {s}", .{message});
+//! ```
+
 const std = @import("std");
 const esc = @import("esc.zig");
 const assert = std.debug.assert;
 const Parser = std.fmt.Parser;
 const comptimePrint = std.fmt.comptimePrint;
 
+/// A writer wrapper that parses inline color codes at compile time.
 pub const Colorz = @This();
 
+/// The underlying writer.
 inner: *std.Io.Writer,
+
+/// Wrap an existing writer to enable color code parsing.
 pub fn wrap(impl: *std.Io.Writer) Colorz {
     return .{ .inner = impl };
 }
+
+/// Get the underlying writer for direct access.
 pub fn writer(self: *Colorz) std.Io.Writer {
     return self.inner;
 }
+
+/// Print a format string with color codes parsed at compile time.
+/// Color codes like `@[.green]` are converted to ANSI sequences.
 pub fn print(self: *Colorz, comptime fmt: []const u8, args: anytype) !void {
     try self.inner.print(parseFmt(fmt), args);
 }
@@ -41,6 +78,9 @@ const BangCodes = std.StaticStringMap([]const u8).initComptime(.{
 });
 
 const ParserState = enum { start, enter_bracket, exit };
+
+/// Parse a format string at compile time, replacing color codes with ANSI sequences.
+/// Returns a new format string with all `@[...]` codes expanded.
 pub fn parseFmt(comptime fmt: []const u8) []const u8 {
     comptime var i = 0;
     comptime var literal: []const u8 = "";

@@ -34,7 +34,7 @@ const MAX_CHUNK_SIZE: usize = 3072;
 
 /// Display RGBA pixel data at the current cursor position.
 /// This is the simplest way to show an image from raw pixel data.
-pub fn displayRgba(writer: anytype, pixels: []const u8, width: usize, height: usize) !void {
+pub fn displayRgba(writer: *std.Io.Writer, pixels: []const u8, width: usize, height: usize) !void {
     var image = Image.init();
     image.setAction(.transmit_and_display);
     image.setFormat(.rgba);
@@ -43,7 +43,7 @@ pub fn displayRgba(writer: anytype, pixels: []const u8, width: usize, height: us
 }
 
 /// Display RGB pixel data (no alpha) at the current cursor position.
-pub fn displayRgb(writer: anytype, pixels: []const u8, width: usize, height: usize) !void {
+pub fn displayRgb(writer: *std.Io.Writer, pixels: []const u8, width: usize, height: usize) !void {
     var image = Image.init();
     image.setAction(.transmit_and_display);
     image.setFormat(.rgb);
@@ -53,7 +53,7 @@ pub fn displayRgb(writer: anytype, pixels: []const u8, width: usize, height: usi
 
 /// Display a PNG file at the current cursor position.
 /// The path must be accessible by the terminal (use absolute paths).
-pub fn displayFile(writer: anytype, path: []const u8) !void {
+pub fn displayFile(writer: *std.Io.Writer, path: []const u8) !void {
     var image = Image.init();
     image.setAction(.transmit_and_display);
     image.setTransmission(.file);
@@ -62,7 +62,7 @@ pub fn displayFile(writer: anytype, path: []const u8) !void {
 }
 
 /// Delete all images from the terminal.
-pub fn deleteAll(writer: anytype) !void {
+pub fn deleteAll(writer: *std.Io.Writer) !void {
     var cmd = Image.init();
     cmd.setAction(.delete);
     cmd.params.d = 'a'; // delete all
@@ -70,7 +70,7 @@ pub fn deleteAll(writer: anytype) !void {
 }
 
 /// Delete a specific image by ID.
-pub fn deleteById(writer: anytype, image_id: usize) !void {
+pub fn deleteById(writer: *std.Io.Writer, image_id: usize) !void {
     var cmd = Image.init();
     cmd.setAction(.delete);
     cmd.params.d = 'i'; // delete by id
@@ -79,7 +79,7 @@ pub fn deleteById(writer: anytype, image_id: usize) !void {
 }
 
 /// Clear all images at the current cursor position.
-pub fn clearAtCursor(writer: anytype) !void {
+pub fn clearAtCursor(writer: *std.Io.Writer) !void {
     var cmd = Image.init();
     cmd.setAction(.delete);
     cmd.params.d = 'c'; // delete at cursor
@@ -172,7 +172,7 @@ pub const Image = struct {
     // -------------------------------------------------------------------------
 
     /// Transmit pixel data (handles chunking for large images).
-    pub fn transmit(self: *Image, writer: anytype, data: []const u8) !void {
+    pub fn transmit(self: *Image, writer: *std.Io.Writer, data: []const u8) !void {
         if (data.len <= MAX_CHUNK_SIZE) {
             // Single chunk transmission
             self.params.m = 0;
@@ -205,7 +205,7 @@ pub const Image = struct {
     }
 
     /// Transmit a file path.
-    pub fn transmitPath(self: *Image, writer: anytype, path: []const u8) !void {
+    pub fn transmitPath(self: *Image, writer: *std.Io.Writer, path: []const u8) !void {
         self.params.m = 0;
         try self.writeCommandWithPayload(writer, path);
     }
@@ -215,14 +215,14 @@ pub const Image = struct {
     // -------------------------------------------------------------------------
 
     /// Write a command without payload.
-    pub fn writeCommand(self: *Image, writer: anytype) !void {
+    pub fn writeCommand(self: *Image, writer: *std.Io.Writer) !void {
         try writer.writeAll(&[_]u8{ cc.esc, '_', 'G' });
         try self.writeParams(writer);
         try writer.writeAll(&[_]u8{ cc.esc, '\\' });
     }
 
     /// Write a command with base64-encoded payload.
-    pub fn writeCommandWithPayload(self: *Image, writer: anytype, payload: []const u8) !void {
+    pub fn writeCommandWithPayload(self: *Image, writer: *std.Io.Writer, payload: []const u8) !void {
         try writer.writeAll(&[_]u8{ cc.esc, '_', 'G' });
         try self.writeParams(writer);
         try writer.writeByte(';');
@@ -231,7 +231,7 @@ pub const Image = struct {
     }
 
     /// Write a continuation chunk for chunked transmission.
-    fn writeContinuation(self: *Image, writer: anytype, chunk: []const u8, is_last: bool) !void {
+    fn writeContinuation(self: *Image, writer: *std.Io.Writer, chunk: []const u8, is_last: bool) !void {
         _ = self;
         try writer.writeAll(&[_]u8{ cc.esc, '_', 'G' });
         if (is_last) {
@@ -244,7 +244,7 @@ pub const Image = struct {
     }
 
     /// Write control parameters.
-    fn writeParams(self: *Image, writer: anytype) !void {
+    fn writeParams(self: *Image, writer: *std.Io.Writer) !void {
         var first = true;
         var int_buf: [20]u8 = undefined;
         inline for (std.meta.fields(Params)) |field| {
@@ -401,7 +401,7 @@ pub const Canvas = struct {
         allocator.free(self.pixels);
     }
 
-    pub fn display(self: *Canvas, writer: anytype) !void {
+    pub fn display(self: *Canvas, writer: *std.Io.Writer) !void {
         try displayRgba(writer, self.pixels, self.width, self.height);
     }
 

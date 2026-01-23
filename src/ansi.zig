@@ -279,7 +279,7 @@ pub const Style = struct {
     underline_color: Color = .default,
 
     /// Write the SGR sequence to start this style
-    pub fn writeStart(self: Style, writer: anytype) !void {
+    pub fn writeStart(self: Style, writer: *std.Io.Writer) !void {
         try writer.writeAll(CSI);
 
         var first = true;
@@ -407,12 +407,12 @@ pub const Style = struct {
     }
 
     /// Write the SGR reset sequence
-    pub fn writeEnd(_: Style, writer: anytype) !void {
+    pub fn writeEnd(_: Style, writer: *std.Io.Writer) !void {
         try writer.writeAll(CSI ++ "0m");
     }
 
     /// Write styled text
-    pub fn write(self: Style, writer: anytype, text: []const u8) !void {
+    pub fn write(self: Style, writer: *std.Io.Writer, text: []const u8) !void {
         try self.writeStart(writer);
         try writer.writeAll(text);
         try self.writeEnd(writer);
@@ -493,77 +493,77 @@ pub const no_overline = CSI ++ "55m";
 
 pub const cursor = struct {
     /// Move cursor up n lines
-    pub fn up(writer: anytype, n: u16) !void {
+    pub fn up(writer: *std.Io.Writer, n: u16) !void {
         try writer.print(CSI ++ "{d}A", .{n});
     }
 
     /// Move cursor down n lines
-    pub fn down(writer: anytype, n: u16) !void {
+    pub fn down(writer: *std.Io.Writer, n: u16) !void {
         try writer.print(CSI ++ "{d}B", .{n});
     }
 
     /// Move cursor forward (right) n columns
-    pub fn forward(writer: anytype, n: u16) !void {
+    pub fn forward(writer: *std.Io.Writer, n: u16) !void {
         try writer.print(CSI ++ "{d}C", .{n});
     }
 
     /// Move cursor backward (left) n columns
-    pub fn backward(writer: anytype, n: u16) !void {
+    pub fn backward(writer: *std.Io.Writer, n: u16) !void {
         try writer.print(CSI ++ "{d}D", .{n});
     }
 
     /// Move cursor to beginning of line n lines down
-    pub fn nextLine(writer: anytype, n: u16) !void {
+    pub fn nextLine(writer: *std.Io.Writer, n: u16) !void {
         try writer.print(CSI ++ "{d}E", .{n});
     }
 
     /// Move cursor to beginning of line n lines up
-    pub fn prevLine(writer: anytype, n: u16) !void {
+    pub fn prevLine(writer: *std.Io.Writer, n: u16) !void {
         try writer.print(CSI ++ "{d}F", .{n});
     }
 
     /// Move cursor to column n (1-based)
-    pub fn toColumn(writer: anytype, col: u16) !void {
+    pub fn toColumn(writer: *std.Io.Writer, col: u16) !void {
         try writer.print(CSI ++ "{d}G", .{col});
     }
 
     /// Move cursor to row, column (1-based)
-    pub fn toPos(writer: anytype, row: u16, col: u16) !void {
+    pub fn toPos(writer: *std.Io.Writer, row: u16, col: u16) !void {
         try writer.print(CSI ++ "{d};{d}H", .{ row, col });
     }
 
     /// Move cursor to row (1-based)
-    pub fn toRow(writer: anytype, row: u16) !void {
+    pub fn toRow(writer: *std.Io.Writer, row: u16) !void {
         try writer.print(CSI ++ "{d}d", .{row});
     }
 
     /// Save cursor position
-    pub fn save(writer: anytype) !void {
+    pub fn save(writer: *std.Io.Writer) !void {
         try writer.writeAll(CSI ++ "s");
     }
 
     /// Restore cursor position
-    pub fn restore(writer: anytype) !void {
+    pub fn restore(writer: *std.Io.Writer) !void {
         try writer.writeAll(CSI ++ "u");
     }
 
     /// Hide cursor
-    pub fn hide(writer: anytype) !void {
+    pub fn hide(writer: *std.Io.Writer) !void {
         try writer.writeAll(CSI ++ "?25l");
     }
 
     /// Show cursor
-    pub fn show(writer: anytype) !void {
+    pub fn show(writer: *std.Io.Writer) !void {
         try writer.writeAll(CSI ++ "?25h");
     }
 
     /// Move cursor to home position (1,1)
-    pub fn home(writer: anytype) !void {
+    pub fn home(writer: *std.Io.Writer) !void {
         try writer.writeAll(CSI ++ "H");
     }
 
     /// Request cursor position (response: ESC [ row ; col R)
-    pub fn requestPos(writer: anytype) !void {
+    pub fn requestPos(writer: *std.Io.Writer) !void {
         try writer.writeAll(CSI ++ "6n");
     }
 
@@ -610,42 +610,42 @@ pub const cursor_show = CSI ++ "?25h";
 
 pub const erase = struct {
     /// Erase from cursor to end of screen
-    pub fn toEndOfScreen(writer: anytype) !void {
+    pub fn toEndOfScreen(writer: *std.Io.Writer) !void {
         try writer.writeAll(CSI ++ "0J");
     }
 
     /// Erase from cursor to beginning of screen
-    pub fn toStartOfScreen(writer: anytype) !void {
+    pub fn toStartOfScreen(writer: *std.Io.Writer) !void {
         try writer.writeAll(CSI ++ "1J");
     }
 
     /// Erase entire screen
-    pub fn screen(writer: anytype) !void {
+    pub fn screen(writer: *std.Io.Writer) !void {
         try writer.writeAll(CSI ++ "2J");
     }
 
     /// Erase entire screen and scrollback buffer
-    pub fn screenAndScrollback(writer: anytype) !void {
+    pub fn screenAndScrollback(writer: *std.Io.Writer) !void {
         try writer.writeAll(CSI ++ "3J");
     }
 
     /// Erase from cursor to end of line
-    pub fn toEndOfLine(writer: anytype) !void {
+    pub fn toEndOfLine(writer: *std.Io.Writer) !void {
         try writer.writeAll(CSI ++ "0K");
     }
 
     /// Erase from cursor to beginning of line
-    pub fn toStartOfLine(writer: anytype) !void {
+    pub fn toStartOfLine(writer: *std.Io.Writer) !void {
         try writer.writeAll(CSI ++ "1K");
     }
 
     /// Erase entire line
-    pub fn line(writer: anytype) !void {
+    pub fn line(writer: *std.Io.Writer) !void {
         try writer.writeAll(CSI ++ "2K");
     }
 
     /// Erase n characters from cursor position
-    pub fn chars(writer: anytype, n: u16) !void {
+    pub fn chars(writer: *std.Io.Writer, n: u16) !void {
         try writer.print(CSI ++ "{d}X", .{n});
     }
 };
@@ -665,12 +665,12 @@ pub const erase_line = CSI ++ "2K";
 
 pub const scroll = struct {
     /// Scroll up n lines
-    pub fn up(writer: anytype, n: u16) !void {
+    pub fn up(writer: *std.Io.Writer, n: u16) !void {
         try writer.print(CSI ++ "{d}S", .{n});
     }
 
     /// Scroll down n lines
-    pub fn down(writer: anytype, n: u16) !void {
+    pub fn down(writer: *std.Io.Writer, n: u16) !void {
         try writer.print(CSI ++ "{d}T", .{n});
     }
 };
@@ -681,12 +681,12 @@ pub const scroll = struct {
 
 pub const line = struct {
     /// Insert n blank lines at cursor position
-    pub fn insert(writer: anytype, n: u16) !void {
+    pub fn insert(writer: *std.Io.Writer, n: u16) !void {
         try writer.print(CSI ++ "{d}L", .{n});
     }
 
     /// Delete n lines at cursor position
-    pub fn delete(writer: anytype, n: u16) !void {
+    pub fn delete(writer: *std.Io.Writer, n: u16) !void {
         try writer.print(CSI ++ "{d}M", .{n});
     }
 };
@@ -697,12 +697,12 @@ pub const line = struct {
 
 pub const char = struct {
     /// Insert n blank characters at cursor position
-    pub fn insert(writer: anytype, n: u16) !void {
+    pub fn insert(writer: *std.Io.Writer, n: u16) !void {
         try writer.print(CSI ++ "{d}@", .{n});
     }
 
     /// Delete n characters at cursor position
-    pub fn delete(writer: anytype, n: u16) !void {
+    pub fn delete(writer: *std.Io.Writer, n: u16) !void {
         try writer.print(CSI ++ "{d}P", .{n});
     }
 };
@@ -713,32 +713,32 @@ pub const char = struct {
 
 pub const screen_mode = struct {
     /// Enable alternative screen buffer
-    pub fn enableAltBuffer(writer: anytype) !void {
+    pub fn enableAltBuffer(writer: *std.Io.Writer) !void {
         try writer.writeAll(CSI ++ "?1049h");
     }
 
     /// Disable alternative screen buffer
-    pub fn disableAltBuffer(writer: anytype) !void {
+    pub fn disableAltBuffer(writer: *std.Io.Writer) !void {
         try writer.writeAll(CSI ++ "?1049l");
     }
 
     /// Enable line wrapping
-    pub fn enableLineWrap(writer: anytype) !void {
+    pub fn enableLineWrap(writer: *std.Io.Writer) !void {
         try writer.writeAll(CSI ++ "?7h");
     }
 
     /// Disable line wrapping
-    pub fn disableLineWrap(writer: anytype) !void {
+    pub fn disableLineWrap(writer: *std.Io.Writer) !void {
         try writer.writeAll(CSI ++ "?7l");
     }
 
     /// Enable bracketed paste mode
-    pub fn enableBracketedPaste(writer: anytype) !void {
+    pub fn enableBracketedPaste(writer: *std.Io.Writer) !void {
         try writer.writeAll(CSI ++ "?2004h");
     }
 
     /// Disable bracketed paste mode
-    pub fn disableBracketedPaste(writer: anytype) !void {
+    pub fn disableBracketedPaste(writer: *std.Io.Writer) !void {
         try writer.writeAll(CSI ++ "?2004l");
     }
 };
@@ -756,42 +756,42 @@ pub const bracketed_paste_disable = CSI ++ "?2004l";
 
 pub const mouse = struct {
     /// Enable mouse tracking (normal mode - X10 compatible)
-    pub fn enableNormal(writer: anytype) !void {
+    pub fn enableNormal(writer: *std.Io.Writer) !void {
         try writer.writeAll(CSI ++ "?1000h");
     }
 
     /// Disable mouse tracking
-    pub fn disableNormal(writer: anytype) !void {
+    pub fn disableNormal(writer: *std.Io.Writer) !void {
         try writer.writeAll(CSI ++ "?1000l");
     }
 
     /// Enable mouse button tracking
-    pub fn enableButton(writer: anytype) !void {
+    pub fn enableButton(writer: *std.Io.Writer) !void {
         try writer.writeAll(CSI ++ "?1002h");
     }
 
     /// Disable mouse button tracking
-    pub fn disableButton(writer: anytype) !void {
+    pub fn disableButton(writer: *std.Io.Writer) !void {
         try writer.writeAll(CSI ++ "?1002l");
     }
 
     /// Enable mouse any-event tracking
-    pub fn enableAny(writer: anytype) !void {
+    pub fn enableAny(writer: *std.Io.Writer) !void {
         try writer.writeAll(CSI ++ "?1003h");
     }
 
     /// Disable mouse any-event tracking
-    pub fn disableAny(writer: anytype) !void {
+    pub fn disableAny(writer: *std.Io.Writer) !void {
         try writer.writeAll(CSI ++ "?1003l");
     }
 
     /// Enable SGR extended mouse mode
-    pub fn enableSGR(writer: anytype) !void {
+    pub fn enableSGR(writer: *std.Io.Writer) !void {
         try writer.writeAll(CSI ++ "?1006h");
     }
 
     /// Disable SGR extended mouse mode
-    pub fn disableSGR(writer: anytype) !void {
+    pub fn disableSGR(writer: *std.Io.Writer) !void {
         try writer.writeAll(CSI ++ "?1006l");
     }
 };
@@ -802,45 +802,45 @@ pub const mouse = struct {
 
 pub const osc = struct {
     /// Set window title
-    pub fn setTitle(writer: anytype, title: []const u8) !void {
+    pub fn setTitle(writer: *std.Io.Writer, title: []const u8) !void {
         try writer.writeAll(OSC ++ "0;");
         try writer.writeAll(title);
         try writer.writeAll(BEL);
     }
 
     /// Set icon name
-    pub fn setIconName(writer: anytype, name: []const u8) !void {
+    pub fn setIconName(writer: *std.Io.Writer, name: []const u8) !void {
         try writer.writeAll(OSC ++ "1;");
         try writer.writeAll(name);
         try writer.writeAll(BEL);
     }
 
     /// Set clipboard (OSC 52)
-    pub fn setClipboard(writer: anytype, data: []const u8) !void {
+    pub fn setClipboard(writer: *std.Io.Writer, data: []const u8) !void {
         try writer.writeAll(OSC ++ "52;c;");
         try writer.writeAll(data); // Should be base64 encoded
         try writer.writeAll(BEL);
     }
 
     /// Request clipboard (OSC 52)
-    pub fn requestClipboard(writer: anytype) !void {
+    pub fn requestClipboard(writer: *std.Io.Writer) !void {
         try writer.writeAll(OSC ++ "52;c;?" ++ BEL);
     }
 
     /// Hyperlink (OSC 8)
-    pub fn hyperlinkStart(writer: anytype, url: []const u8) !void {
+    pub fn hyperlinkStart(writer: *std.Io.Writer, url: []const u8) !void {
         try writer.writeAll(OSC ++ "8;;");
         try writer.writeAll(url);
         try writer.writeAll(BEL);
     }
 
     /// End hyperlink
-    pub fn hyperlinkEnd(writer: anytype) !void {
+    pub fn hyperlinkEnd(writer: *std.Io.Writer) !void {
         try writer.writeAll(OSC ++ "8;;" ++ BEL);
     }
 
     /// Notify (OSC 9 - iTerm2)
-    pub fn notify(writer: anytype, message: []const u8) !void {
+    pub fn notify(writer: *std.Io.Writer, message: []const u8) !void {
         try writer.writeAll(OSC ++ "9;");
         try writer.writeAll(message);
         try writer.writeAll(BEL);
@@ -946,12 +946,12 @@ pub const fg = struct {
     pub const bright_white = CSI ++ "97m";
 
     /// Set foreground to 256-color palette index
-    pub fn indexed(writer: anytype, index: u8) !void {
+    pub fn indexed(writer: *std.Io.Writer, index: u8) !void {
         try writer.print(CSI ++ "38;5;{d}m", .{index});
     }
 
     /// Set foreground to RGB color
-    pub fn rgb(writer: anytype, r: u8, g: u8, b: u8) !void {
+    pub fn rgb(writer: *std.Io.Writer, r: u8, g: u8, b: u8) !void {
         try writer.print(CSI ++ "38;2;{d};{d};{d}m", .{ r, g, b });
     }
 };
@@ -981,12 +981,12 @@ pub const bg = struct {
     pub const bright_white = CSI ++ "107m";
 
     /// Set background to 256-color palette index
-    pub fn indexed(writer: anytype, index: u8) !void {
+    pub fn indexed(writer: *std.Io.Writer, index: u8) !void {
         try writer.print(CSI ++ "48;5;{d}m", .{index});
     }
 
     /// Set background to RGB color
-    pub fn rgb(writer: anytype, r: u8, g: u8, b: u8) !void {
+    pub fn rgb(writer: *std.Io.Writer, r: u8, g: u8, b: u8) !void {
         try writer.print(CSI ++ "48;2;{d};{d};{d}m", .{ r, g, b });
     }
 };

@@ -98,7 +98,7 @@ pub fn repeat(char: u8, count: usize, buf: []u8) []const u8 {
 }
 
 /// Write a horizontal rule
-pub fn writeHorizontalRule(writer: anytype, width: usize, char: u8) !void {
+pub fn writeHorizontalRule(writer: std.Io.Writer, width: usize, char: u8) !void {
     var i: usize = 0;
     while (i < width) : (i += 1) {
         try writer.writeByte(char);

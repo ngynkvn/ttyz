@@ -6,24 +6,12 @@ const std = @import("std");
 const ttyz = @import("ttyz");
 const frame = ttyz.frame;
 const Frame = ttyz.Frame;
-const Buffer = ttyz.Buffer;
 const Layout = frame.Layout;
 const Color = frame.Color;
-const Style = frame.Style;
 
 const ColorDemo = struct {
-    buffer: Buffer,
-    allocator: std.mem.Allocator,
     hue_offset: u8 = 0,
     frame_count: usize = 0,
-
-    pub fn init(self: *ColorDemo, screen: *ttyz.Screen) !void {
-        self.buffer = try Buffer.init(self.allocator, screen.width, screen.height);
-    }
-
-    pub fn deinit(self: *ColorDemo) void {
-        self.buffer.deinit();
-    }
 
     pub fn handleEvent(_: *ColorDemo, event: ttyz.Event) bool {
         return switch (event) {
@@ -36,14 +24,7 @@ const ColorDemo = struct {
         };
     }
 
-    pub fn render(self: *ColorDemo, screen: *ttyz.Screen) !void {
-        if (self.buffer.width != screen.width or self.buffer.height != screen.height) {
-            try self.buffer.resize(screen.width, screen.height);
-        }
-
-        var f = Frame.init(&self.buffer);
-        f.clear();
-
+    pub fn render(self: *ColorDemo, f: *Frame) !void {
         // Main layout: title, content, footer
         const title_area, const content, const footer = f.areas(3, Layout(3).vertical(.{
             .{ .length = 2 },
@@ -63,24 +44,22 @@ const ColorDemo = struct {
         }).areas(content);
 
         // 16 basic colors
-        self.draw16Colors(&f, colors16);
+        self.draw16Colors(f, colors16);
 
         // 256 color palette
-        self.draw256Colors(&f, colors256);
+        self.draw256Colors(f, colors256);
 
         // True color gradient
-        self.drawTrueColor(&f, truecolor);
+        self.drawTrueColor(f, truecolor);
 
         // Text styles
-        self.drawStyles(&f, styles);
+        self.drawStyles(f, styles);
 
         // Footer
         f.setString(2, footer.y, "Press Q to quit", .{ .dim = true }, .default, .default);
 
         self.frame_count += 1;
         if (self.frame_count % 4 == 0) self.hue_offset +%= 1;
-
-        try f.render(screen);
     }
 
     fn draw16Colors(self: *ColorDemo, f: *Frame, area: frame.Rect) void {
@@ -191,6 +170,6 @@ fn hsvToRgb(h: f32, s: f32, v: f32) [3]u8 {
 }
 
 pub fn main(init: std.process.Init) !void {
-    var app = ColorDemo{ .buffer = undefined, .allocator = init.gpa };
+    var app = ColorDemo{};
     try ttyz.Runner(ColorDemo).run(&app, init);
 }

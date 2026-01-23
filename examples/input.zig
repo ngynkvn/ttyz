@@ -6,26 +6,15 @@ const std = @import("std");
 const ttyz = @import("ttyz");
 const frame = ttyz.frame;
 const Frame = ttyz.Frame;
-const Buffer = ttyz.Buffer;
 const Layout = frame.Layout;
 const Color = frame.Color;
 
 const InputDemo = struct {
-    buffer: Buffer,
-    allocator: std.mem.Allocator,
     last_key: ?ttyz.Event.Key = null,
     mouse_pos: struct { row: usize = 0, col: usize = 0 } = .{},
     click_count: usize = 0,
     key_history: [8]u8 = .{' '} ** 8,
     key_idx: usize = 0,
-
-    pub fn init(self: *InputDemo, screen: *ttyz.Screen) !void {
-        self.buffer = try Buffer.init(self.allocator, screen.width, screen.height);
-    }
-
-    pub fn deinit(self: *InputDemo) void {
-        self.buffer.deinit();
-    }
 
     pub fn handleEvent(self: *InputDemo, event: ttyz.Event) bool {
         switch (event) {
@@ -54,14 +43,7 @@ const InputDemo = struct {
         }
     }
 
-    pub fn render(self: *InputDemo, screen: *ttyz.Screen) !void {
-        if (self.buffer.width != screen.width or self.buffer.height != screen.height) {
-            try self.buffer.resize(screen.width, screen.height);
-        }
-
-        var f = Frame.init(&self.buffer);
-        f.clear();
-
+    pub fn render(self: *InputDemo, f: *Frame) !void {
         // Main layout
         const title_area, const content, const footer = f.areas(3, Layout(3).vertical(.{
             .{ .length = 2 },
@@ -129,12 +111,10 @@ const InputDemo = struct {
 
         // Footer
         f.setString(2, footer.y, "Press Q or ESC to quit", .{ .dim = true }, .default, .default);
-
-        try f.render(screen);
     }
 };
 
 pub fn main(init: std.process.Init) !void {
-    var app = InputDemo{ .buffer = undefined, .allocator = init.gpa };
+    var app = InputDemo{};
     try ttyz.Runner(InputDemo).runWithOptions(&app, init, .{ .fps = 60 });
 }

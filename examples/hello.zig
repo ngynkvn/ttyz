@@ -4,24 +4,11 @@
 
 const std = @import("std");
 const ttyz = @import("ttyz");
-const frame = ttyz.frame;
 const Frame = ttyz.Frame;
-const Buffer = ttyz.Buffer;
-const Layout = frame.Layout;
-const Color = frame.Color;
+const Layout = ttyz.frame.Layout;
+const Color = ttyz.frame.Color;
 
 const HelloApp = struct {
-    buffer: Buffer,
-    allocator: std.mem.Allocator,
-
-    pub fn init(self: *HelloApp, screen: *ttyz.Screen) !void {
-        self.buffer = try Buffer.init(self.allocator, screen.width, screen.height);
-    }
-
-    pub fn deinit(self: *HelloApp) void {
-        self.buffer.deinit();
-    }
-
     pub fn handleEvent(_: *HelloApp, event: ttyz.Event) bool {
         return switch (event) {
             .key => false, // Any key exits
@@ -30,15 +17,7 @@ const HelloApp = struct {
         };
     }
 
-    pub fn render(self: *HelloApp, screen: *ttyz.Screen) !void {
-        if (self.buffer.width != screen.width or self.buffer.height != screen.height) {
-            try self.buffer.resize(screen.width, screen.height);
-        }
-
-        var f = Frame.init(&self.buffer);
-        f.clear();
-
-        // Split into header, content, footer
+    pub fn render(_: *HelloApp, f: *Frame) !void {
         const header, const content, const footer = f.areas(3, Layout(3).vertical(.{
             .{ .length = 1 },
             .{ .fill = 1 },
@@ -55,15 +34,11 @@ const HelloApp = struct {
         f.setString(cx, cy, msg, .{ .bold = true }, Color.green, .default);
 
         // Footer
-        var buf: [64]u8 = undefined;
-        const footer_text = std.fmt.bufPrint(&buf, "Screen: {}x{} | Press any key to exit", .{ screen.width, screen.height }) catch "Press any key";
-        f.setString(0, footer.y, footer_text, .{ .dim = true }, .default, .default);
-
-        try f.render(screen);
+        f.setString(0, footer.y, "Press any key to exit", .{ .dim = true }, .default, .default);
     }
 };
 
 pub fn main(init: std.process.Init) !void {
-    var app = HelloApp{ .buffer = undefined, .allocator = init.gpa };
+    var app = HelloApp{};
     try ttyz.Runner(HelloApp).run(&app, init);
 }

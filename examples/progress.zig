@@ -6,13 +6,10 @@ const std = @import("std");
 const ttyz = @import("ttyz");
 const frame = ttyz.frame;
 const Frame = ttyz.Frame;
-const Buffer = ttyz.Buffer;
 const Layout = frame.Layout;
 const Color = frame.Color;
 
 const ProgressDemo = struct {
-    buffer: Buffer,
-    allocator: std.mem.Allocator,
     step: usize = 0,
     anim_frame: usize = 0,
     total_steps: usize = 100,
@@ -21,14 +18,6 @@ const ProgressDemo = struct {
     const spinners = [_][]const u8{ "|", "/", "-", "\\" };
     const dots = [_][]const u8{ ".  ", ".. ", "...", " ..", "  .", "   " };
     const braille = [_][]const u8{ "\u{28F7}", "\u{28EF}", "\u{28DF}", "\u{287F}", "\u{28BF}", "\u{28FB}", "\u{28FD}", "\u{28FE}" };
-
-    pub fn init(self: *ProgressDemo, screen: *ttyz.Screen) !void {
-        self.buffer = try Buffer.init(self.allocator, screen.width, screen.height);
-    }
-
-    pub fn deinit(self: *ProgressDemo) void {
-        self.buffer.deinit();
-    }
 
     pub fn handleEvent(self: *ProgressDemo, event: ttyz.Event) bool {
         return switch (event) {
@@ -41,14 +30,7 @@ const ProgressDemo = struct {
         };
     }
 
-    pub fn render(self: *ProgressDemo, screen: *ttyz.Screen) !void {
-        if (self.buffer.width != screen.width or self.buffer.height != screen.height) {
-            try self.buffer.resize(screen.width, screen.height);
-        }
-
-        var f = Frame.init(&self.buffer);
-        f.clear();
-
+    pub fn render(self: *ProgressDemo, f: *Frame) !void {
         // Main layout
         const title_area, const content, const footer_area = f.areas(3, Layout(3).vertical(.{
             .{ .length = 2 },
@@ -77,7 +59,7 @@ const ProgressDemo = struct {
             }).areas(content);
 
             // Main progress bar
-            self.drawProgressBar(&f, prog_area.x + 2, prog_area.y + 1, 40, progress);
+            self.drawProgressBar(f, prog_area.x + 2, prog_area.y + 1, 40, progress);
 
             // Spinners section
             f.setString(spin_area.x + 2, spin_area.y, "Spinners:", .{}, .default, .default);
@@ -104,7 +86,7 @@ const ProgressDemo = struct {
                 if (p >= 1.0) {
                     f.setString(task_area.x + 13, y, "[done]", .{}, Color.green, .default);
                 } else if (p > 0) {
-                    self.drawProgressBar(&f, task_area.x + 13, y, 20, p);
+                    self.drawProgressBar(f, task_area.x + 13, y, 20, p);
                 } else {
                     f.setString(task_area.x + 13, y, "[waiting]", .{ .dim = true }, .default, .default);
                 }
@@ -118,8 +100,6 @@ const ProgressDemo = struct {
         var buf: [32]u8 = undefined;
         const footer_text = std.fmt.bufPrint(&buf, "Step {}/{}", .{ @min(self.step, self.total_steps), self.total_steps }) catch "...";
         f.setString(2, footer_area.y, footer_text, .{ .dim = true }, .default, .default);
-
-        try f.render(screen);
     }
 
     fn drawProgressBar(self: *ProgressDemo, f: *Frame, x: u16, y: u16, width: u16, progress: f32) void {
@@ -148,6 +128,6 @@ const ProgressDemo = struct {
 };
 
 pub fn main(init: std.process.Init) !void {
-    var app = ProgressDemo{ .buffer = undefined, .allocator = init.gpa };
+    var app = ProgressDemo{};
     try ttyz.Runner(ProgressDemo).run(&app, init);
 }

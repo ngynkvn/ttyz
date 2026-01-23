@@ -6,14 +6,11 @@ const std = @import("std");
 const ttyz = @import("ttyz");
 const fr = ttyz.frame;
 const Frame = ttyz.Frame;
-const Buffer = ttyz.Buffer;
 const Layout = fr.Layout;
 const Color = fr.Color;
 const Rect = fr.Rect;
 
 const Demo = struct {
-    buffer: Buffer,
-    allocator: std.mem.Allocator,
     current_tab: Tab = .overview,
     mouse_pos: struct { row: usize = 0, col: usize = 0 } = .{},
     click_count: usize = 0,
@@ -33,14 +30,6 @@ const Demo = struct {
             .boxes => "Boxes",
             .text_demo => "Text",
         };
-    }
-
-    pub fn init(self: *Demo, screen: *ttyz.Screen) !void {
-        self.buffer = try Buffer.init(self.allocator, screen.width, screen.height);
-    }
-
-    pub fn deinit(self: *Demo) void {
-        self.buffer.deinit();
     }
 
     pub fn handleEvent(self: *Demo, event: ttyz.Event) bool {
@@ -74,14 +63,7 @@ const Demo = struct {
         return true;
     }
 
-    pub fn render(self: *Demo, screen: *ttyz.Screen) !void {
-        if (self.buffer.width != screen.width or self.buffer.height != screen.height) {
-            try self.buffer.resize(screen.width, screen.height);
-        }
-
-        var f = Frame.init(&self.buffer);
-        f.clear();
-
+    pub fn render(self: *Demo, f: *Frame) !void {
         // Main layout: header, tabs, content, footer
         const header, const tab_bar, const content, const footer = f.areas(4, Layout(4).vertical(.{
             .{ .length = 1 }, // header
@@ -97,27 +79,25 @@ const Demo = struct {
         f.setString(title_x, header.y, title, .{ .bold = true }, Color.white, Color.blue);
 
         // Tab bar
-        self.drawTabBar(&f, tab_bar);
+        self.drawTabBar(f, tab_bar);
 
         // Content
         switch (self.current_tab) {
-            .overview => self.drawOverview(&f, content),
-            .colors => self.drawColors(&f, content),
-            .events => self.drawEvents(&f, content),
-            .boxes => self.drawBoxes(&f, content),
-            .text_demo => self.drawText(&f, content),
+            .overview => self.drawOverview(f, content),
+            .colors => self.drawColors(f, content),
+            .events => self.drawEvents(f, content),
+            .boxes => self.drawBoxes(f, content),
+            .text_demo => self.drawText(f, content),
         }
 
         // Footer
         f.fillRect(footer, .{ .char = ' ', .bg = Color{ .indexed = 236 } });
         var buf: [64]u8 = undefined;
-        const footer_text = std.fmt.bufPrint(&buf, " Tab: Switch | Q: Quit | {}x{} | Frame: {}", .{ screen.width, screen.height, self.anim_frame }) catch "";
+        const footer_text = std.fmt.bufPrint(&buf, " Tab: Switch | Q: Quit | {}x{} | Frame: {}", .{ f.buffer.width, f.buffer.height, self.anim_frame }) catch "";
         f.setString(footer.x + 1, footer.y, footer_text, .{}, .default, Color{ .indexed = 236 });
 
         self.anim_frame +%= 1;
         if (self.anim_frame % 4 == 0) self.color_offset +%= 1;
-
-        try f.render(screen);
     }
 
     fn drawTabBar(self: *Demo, f: *Frame, area: Rect) void {
@@ -323,6 +303,6 @@ fn hsvToRgb(h: f32, s: f32, v: f32) [3]u8 {
 }
 
 pub fn main(init: std.process.Init) !void {
-    var app = Demo{ .buffer = undefined, .allocator = init.gpa };
+    var app = Demo{};
     try ttyz.Runner(Demo).run(&app, init);
 }

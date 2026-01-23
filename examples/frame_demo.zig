@@ -1,7 +1,6 @@
 //! Frame Demo - Demonstrates the Frame abstraction for cell-based rendering.
 //!
 //! This example shows:
-//! - Creating a Buffer and Frame
 //! - Using Layout to split areas
 //! - Drawing rectangles with different border styles
 //! - Drawing styled text
@@ -11,8 +10,6 @@ const std = @import("std");
 const ttyz = @import("ttyz");
 
 const Frame = ttyz.Frame;
-const Buffer = ttyz.Buffer;
-const Cell = ttyz.Cell;
 const Rect = ttyz.Rect;
 const frame = ttyz.frame;
 const Layout = frame.Layout;
@@ -22,21 +19,11 @@ const Color = frame.Color;
 const BorderStyle = frame.BorderStyle;
 
 const App = struct {
-    buffer: Buffer,
     frame_count: usize = 0,
     selected_border: usize = 0,
-    allocator: std.mem.Allocator,
 
     const border_styles = [_]BorderStyle{ .single, .double, .rounded, .thick };
     const border_names = [_][]const u8{ "Single", "Double", "Rounded", "Thick" };
-
-    pub fn init(self: *App, screen: *ttyz.Screen) !void {
-        self.buffer = try Buffer.init(self.allocator, screen.width, screen.height);
-    }
-
-    pub fn deinit(self: *App) void {
-        self.buffer.deinit();
-    }
 
     pub fn handleEvent(self: *App, event: ttyz.Event) bool {
         switch (event) {
@@ -56,15 +43,7 @@ const App = struct {
         return true;
     }
 
-    pub fn render(self: *App, screen: *ttyz.Screen) !void {
-        // Resize buffer if needed
-        if (self.buffer.width != screen.width or self.buffer.height != screen.height) {
-            try self.buffer.resize(screen.width, screen.height);
-        }
-
-        var f = Frame.init(&self.buffer);
-        f.clear();
-
+    pub fn render(self: *App, f: *Frame) !void {
         // Use Layout to split into header, content, and footer
         const header, const content, const footer = f.areas(3, Layout(3).vertical(.{
             .{ .length = 3 }, // header
@@ -162,21 +141,15 @@ const App = struct {
 
         // Footer with frame counter
         var buf: [64]u8 = undefined;
-        const counter_text = std.fmt.bufPrint(&buf, " Frame: {} | Screen: {}x{} ", .{ self.frame_count, screen.width, screen.height }) catch " Frame: ??? ";
+        const counter_text = std.fmt.bufPrint(&buf, " Frame: {} | Screen: {}x{} ", .{ self.frame_count, f.buffer.width, f.buffer.height }) catch " Frame: ??? ";
         f.fillRect(footer, .{ .char = ' ', .bg = Color{ .indexed = 236 } });
         f.setString(footer.x + 1, footer.y, counter_text, .{}, .default, Color{ .indexed = 236 });
 
         self.frame_count += 1;
-
-        // Render the frame to screen
-        try f.render(screen);
     }
 };
 
 pub fn main(init: std.process.Init) !void {
-    var app = App{
-        .buffer = undefined,
-        .allocator = init.gpa,
-    };
+    var app = App{};
     try ttyz.Runner(App).run(&app, init);
 }

@@ -48,14 +48,14 @@ pub fn Runner(comptime T: type) type {
         }
 
         /// Run the event/render loop with the given app.
-        pub fn run(app: *T, proc: std.process.Init) !void {
-            return runWithOptions(app, proc, .{});
+        pub fn run(app: *T, proc: std.process.Init, buffers: Screen.Buffers) !void {
+            return runWithOptions(app, proc, buffers, .{});
         }
 
         /// Run with custom options.
-        pub fn runWithOptions(app: *T, proc: std.process.Init, options: Options) !void {
+        pub fn runWithOptions(app: *T, proc: std.process.Init, buffers: Screen.Buffers, options: Options) !void {
             const io = proc.io;
-            var screen = try Screen.init(io);
+            var screen = try Screen.init(io, buffers);
             defer _ = screen.deinit() catch {};
 
             // Store screen pointer for signal handler

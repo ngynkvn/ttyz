@@ -1,32 +1,30 @@
 //! Bounded ring buffer queue for fixed-capacity FIFO operations.
 //!
-//! Wraps std.Deque with a fixed-size buffer for allocation-free queuing.
+//! Wraps std.Deque with an externally-provided buffer for allocation-free queuing.
 //! Used internally for the event queue.
 //!
 //! ## Example
 //! ```zig
-//! var q: BoundedQueue(u32, 16) = .{};
-//! q.setup();
+//! var buffer: [16]u32 = undefined;
+//! var q = BoundedQueue(u32).init(&buffer);
 //! try q.pushBackBounded(42);
 //! const val = q.popFront(); // returns 42
 //! ```
 
 const std = @import("std");
 
-/// A simple bounded ring buffer queue with a fixed capacity.
+/// A simple bounded ring buffer queue.
 /// Wraps std.Deque with externally-managed memory.
-pub fn BoundedQueue(comptime T: type, comptime capacity: usize) type {
+pub fn BoundedQueue(comptime T: type) type {
     return struct {
         const Self = @This();
         const Deque = std.Deque(T);
 
-        buffer: [capacity]T = undefined,
-        deque: Deque = Deque.empty,
+        deque: Deque,
 
-        /// Initialize the deque to use the buffer. Must be called after the
-        /// struct is in its final memory location.
-        pub fn setup(self: *Self) void {
-            self.deque = Deque.initBuffer(&self.buffer);
+        /// Initialize with an external buffer.
+        pub fn init(buffer: []T) Self {
+            return .{ .deque = Deque.initBuffer(buffer) };
         }
 
         /// Add an item to the back of the queue.
@@ -47,7 +45,7 @@ pub fn BoundedQueue(comptime T: type, comptime capacity: usize) type {
 
         /// Check if the queue is at capacity.
         pub fn isFull(self: *const Self) bool {
-            return self.deque.len >= capacity;
+            return self.deque.len >= self.deque.buffer.len;
         }
 
         /// Get the current number of elements.
@@ -58,8 +56,8 @@ pub fn BoundedQueue(comptime T: type, comptime capacity: usize) type {
 }
 
 test "BoundedQueue basic operations" {
-    var q: BoundedQueue(u32, 4) = .{};
-    q.setup();
+    var buffer: [4]u32 = undefined;
+    var q = BoundedQueue(u32).init(&buffer);
 
     try q.pushBackBounded(1);
     try q.pushBackBounded(2);

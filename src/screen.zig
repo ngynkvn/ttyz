@@ -38,6 +38,13 @@ pub const Screen = struct {
         sleep: usize = 0,
     };
 
+    /// Buffers required by Screen. Allocate these near main and pass to init.
+    pub const Buffers = struct {
+        writer: []u8,
+        textinput: []u8,
+        events: []Event,
+    };
+
     pub const Signals = struct {
         pub var WINCH: bool = false;
         pub var INTERRUPT: bool = false;
@@ -61,31 +68,27 @@ pub const Screen = struct {
     lock: std.Thread.Mutex,
     /// Buffered writer for terminal output.
     writer: std.Io.File.Writer,
-    /// Buffer for the writer.
-    writer_buffer: [4096]u8,
     /// Queue for pending input events.
-    event_queue: BoundedQueue(Event, 32),
+    event_queue: BoundedQueue(Event),
     /// Background I/O thread handle.
     io_thread: ?std.Thread,
     /// Set to false to stop the main loop and I/O thread.
     running: bool,
     /// Application state toggle (for demo purposes).
     toggle: bool,
-    /// Buffer for text input.
-    textinput_buffer: [32]u8,
     /// Text input accumulator.
     textinput: std.ArrayList(u8),
     /// ANSI escape sequence parser for input.
     input_parser: parser.Parser,
 
     /// Enter "raw mode", returning a struct that wraps around the provided tty file
-    pub fn init(io: std.Io) !Screen {
+    pub fn init(io: std.Io, buffers: Buffers) !Screen {
         const f = try std.Io.Dir.openFileAbsolute(io, CONFIG.TTY_PATH, .{ .mode = .read_write });
-        return try initFrom(io, f);
+        return try initFrom(io, f, buffers);
     }
 
     /// Initialize a Screen from an existing TTY file descriptor.
-    pub fn initFrom(io: std.Io, f: std.Io.File) !Screen {
+    pub fn initFrom(io: std.Io, f: std.Io.File, buffers: Buffers) !Screen {
         const fd = f.handle;
         tty_fd = fd;
         const orig = try posix.tcgetattr(fd);
@@ -112,24 +115,20 @@ pub const Screen = struct {
         const setrc = system.tcsetattr(fd, .FLUSH, &raw);
         if (posix.errno(setrc) != .SUCCESS) return error.CouldNotSetTermiosFlags;
 
-        var self: Screen = undefined;
-        self = .{
+        var self = Screen{
             .file = f,
             .fd = fd,
             .running = true,
             .width = 0,
             .height = 0,
             .lock = .{},
-            .writer = f.writerStreaming(io, &self.writer_buffer),
-            .writer_buffer = undefined,
+            .writer = f.writerStreaming(io, buffers.writer),
             .io_thread = null,
-            .event_queue = .{},
+            .event_queue = BoundedQueue(Event).init(buffers.events),
             .toggle = false,
-            .textinput_buffer = std.mem.zeroes([32]u8),
-            .textinput = std.ArrayList(u8).initBuffer(&self.textinput_buffer),
+            .textinput = std.ArrayList(u8).initBuffer(buffers.textinput),
             .input_parser = parser.Parser.init(),
         };
-        self.event_queue.setup();
 
         const ws = try self.querySize();
         self.width = ws.col;

@@ -17,7 +17,8 @@ pub const BorderStyle = types.BorderStyle;
 pub const BorderChars = types.BorderChars;
 const ttyz = @import("ttyz.zig");
 const Screen = ttyz.Screen;
-const E = ttyz.E;
+const ansi = ttyz.ansi;
+const E = ansi.E;
 
 // Re-export types
 // Layout types

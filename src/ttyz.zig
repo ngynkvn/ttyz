@@ -37,7 +37,6 @@ pub const ansi = @import("ansi.zig");
 /// Comptime color format string parser for inline ANSI colors.
 pub const colorz = @import("colorz.zig");
 /// VT100/xterm escape sequence constants.
-pub const E = @import("esc.zig");
 pub const event = @import("event.zig");
 pub const Event = event.Event;
 /// Frame-based drawing with cell buffers.
@@ -62,11 +61,11 @@ pub const TestBackend = screen.TestBackend;
 pub const panic = screen.panic;
 pub const panicTty = screen.panicTty;
 pub const queryHandleSize = screen.queryHandleSize;
+/// Box drawing with Unicode characters.
+pub const termdraw = @import("termdraw.zig");
 /// Test utilities for capturing terminal output.
 pub const test_capture = @import("test_capture.zig");
 pub const TestCapture = test_capture.TestCapture;
-/// Box drawing with Unicode characters.
-pub const termdraw = @import("termdraw.zig");
 /// Text utilities for padding, centering, and display width.
 pub const text = @import("text.zig");
 

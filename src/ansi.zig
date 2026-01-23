@@ -1,10 +1,6 @@
 //! ANSI escape sequence library based on ECMA-48.
 //! Provides functions for terminal manipulation, text styling, and color support.
 
-const std = @import("std");
-
-pub const parser = @import("parser.zig");
-
 // =============================================================================
 // C0 Control Characters
 // =============================================================================
@@ -554,9 +550,9 @@ pub const cursor = struct {
         try writer.writeAll(CSI ++ "?25l");
     }
 
-    /// Show cursor
+    /// Show cursor (also restores cursor blinking)
     pub fn show(writer: *std.Io.Writer) !void {
-        try writer.writeAll(CSI ++ "?25h");
+        try writer.writeAll(CSI ++ "?12;25h");
     }
 
     /// Move cursor to home position (1,1)
@@ -604,7 +600,7 @@ pub const cursor_home = CSI ++ "H";
 pub const cursor_save = CSI ++ "s";
 pub const cursor_restore = CSI ++ "u";
 pub const cursor_hide = CSI ++ "?25l";
-pub const cursor_show = CSI ++ "?25h";
+pub const cursor_show = CSI ++ "?12;25h";
 
 // =============================================================================
 // Erase Functions
@@ -1073,3 +1069,8 @@ test "erase sequences" {
     try erase.line(&writer);
     try std.testing.expectEqualStrings("\x1b[2K", writer.buffered());
 }
+
+const std = @import("std");
+
+pub const E = @import("esc.zig").E;
+pub const parser = @import("parser.zig");

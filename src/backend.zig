@@ -18,6 +18,13 @@ pub const Backend = union(enum) {
     tty: TtyBackend,
     testing: *TestBackend,
 
+    pub fn writer(self: *Backend) *std.Io.Writer {
+        return switch (self.*) {
+            .tty => |*t| &t.writer.interface,
+            .testing => undefined,
+        };
+    }
+
     pub fn write(self: *Backend, data: []const u8) !usize {
         return switch (self.*) {
             .tty => |*t| t.write(data),

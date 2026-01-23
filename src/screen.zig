@@ -3,18 +3,6 @@
 //! Manages raw mode initialization, event handling, and output buffering.
 //! Supports both real TTY and test backends for output capture.
 
-const std = @import("std");
-const posix = std.posix;
-const system = posix.system;
-
-const E = @import("esc.zig");
-const Event = @import("event.zig").Event;
-const parser = @import("parser.zig");
-const backend_mod = @import("backend.zig");
-pub const Backend = backend_mod.Backend;
-pub const TtyBackend = backend_mod.TtyBackend;
-pub const TestBackend = backend_mod.TestBackend;
-
 var orig_termios: ?posix.termios = null;
 var tty_fd: ?posix.fd_t = null;
 
@@ -148,16 +136,22 @@ pub const Screen = struct {
 
     /// Write startup escape sequences based on options.
     fn writeStartSequences(self: *Screen) !void {
-        if (self.options.alt_screen) _ = try self.writeRawDirect(E.ENTER_ALT_SCREEN);
-        if (self.options.hide_cursor) _ = try self.writeRawDirect(E.CURSOR_INVISIBLE);
-        if (self.options.mouse_tracking) _ = try self.writeRawDirect(E.ENABLE_MOUSE_TRACKING);
+        if (self.options.hide_cursor) _ = try self.writeRawFrom(ansi.cursor.hide);
+        if (self.options.alt_screen) _ = try self.writeRawFrom(ansi.screen_mode.enableAltBuffer);
+        if (self.options.mouse_tracking) _ = try self.writeRawDirect(ansi.E.ENABLE_MOUSE_TRACKING);
     }
 
     /// Write cleanup escape sequences based on options.
     fn writeExitSequences(self: *Screen) !void {
-        if (self.options.mouse_tracking) _ = try self.writeRawDirect(E.DISABLE_MOUSE_TRACKING);
-        if (self.options.hide_cursor) _ = try self.writeRawDirect(E.CURSOR_VISIBLE);
-        if (self.options.alt_screen) _ = try self.writeRawDirect(E.EXIT_ALT_SCREEN);
+        // TODO:
+        if (self.options.hide_cursor) try self.writeRawFrom(ansi.cursor.show);
+        if (self.options.alt_screen) try self.writeRawFrom(ansi.screen_mode.disableAltBuffer);
+        if (self.options.mouse_tracking) _ = try self.writeRawDirect(ansi.E.DISABLE_MOUSE_TRACKING);
+    }
+
+    fn writeRawFrom(self: *Screen, f: *const fn (*std.Io.Writer) anyerror!void) !void {
+        try f(self.backend.writer());
+        try self.flush();
     }
 
     /// Write bytes directly to terminal (bypasses buffer).
@@ -394,3 +388,16 @@ pub fn panicTty(msg: []const u8, ra: ?usize) noreturn {
     std.log.err("panic: {s}", .{msg});
     std.debug.defaultPanic(msg, ra);
 }
+
+const std = @import("std");
+const posix = std.posix;
+const system = posix.system;
+
+const ansi = @import("ansi.zig");
+const E = ansi.E;
+const backend_mod = @import("backend.zig");
+pub const Backend = backend_mod.Backend;
+pub const TtyBackend = backend_mod.TtyBackend;
+pub const TestBackend = backend_mod.TestBackend;
+const Event = @import("event.zig").Event;
+const parser = @import("parser.zig");

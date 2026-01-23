@@ -5,6 +5,7 @@ const system = posix.system;
 
 pub const kitty = @import("kitty.zig");
 pub const draw = @import("draw.zig");
+pub const termdraw = @import("termdraw.zig");
 
 pub const CONFIG = .{
     // Disable tty's SIGINT handling,
@@ -79,6 +80,7 @@ pub const Screen = struct {
     /// Explanation here: https://viewsourcecode.org/snaptoken/kilo/02.enteringScreen.html
     /// https://zig.news/lhp/want-to-create-a-tui-application-the-basics-of-uncooked-terminal-io-17gm
     pub fn init() !Screen {
+        _ = termdraw;
         const tty = try std.fs.openFileAbsolute(CONFIG.TTY_HANDLE, .{ .mode = .read_write });
         return try initFrom(tty);
     }
@@ -193,82 +195,9 @@ pub const Screen = struct {
             }
             const n = self.read(&self.input_buffer) catch continue;
             self.last_read = self.input_buffer[0..n];
-            self.collectEvents(self.input_buffer[0..n]);
+            const ev = Parser.collectEvents(self.input_buffer[0..n]);
+            if (ev) |e| self.event_queue.appendBounded(e) catch {};
         }
-    }
-
-    const Parser = struct {
-        buf: []u8,
-        i: usize,
-        fn init(buf: []u8) Parser {
-            return .{ .buf = buf, .i = 0 };
-        }
-        fn isEnd(self: *Parser) bool {
-            return self.i >= self.buf.len;
-        }
-        fn next(self: *Parser) u8 {
-            if (self.isEnd()) return 0;
-            self.advance();
-            return self.buf[self.i - 1];
-        }
-        fn remaining(self: *Parser) usize {
-            if (self.isEnd()) return 0;
-            return self.buf.len - self.i;
-        }
-        fn advance(self: *Parser) void {
-            self.i += 1;
-        }
-        fn peek(self: *Parser) u8 {
-            return self.buf[self.i];
-        }
-        fn expect(self: *Parser, c: u8) ?void {
-            if (self.isEnd() or self.peek() != c) return null;
-            self.advance();
-        }
-    };
-
-    const ParseState = enum { start, esc, csi, csi_num };
-    pub fn collectEvents(self: *Screen, buf: []u8) void {
-        var p = Parser.init(buf);
-        var event: ?Event = null;
-        state: switch (ParseState.start) {
-            .start => {
-                switch (p.next()) {
-                    'a'...'z', 'A'...'Z', '0'...'9' => |c| event = .{ .key = @enumFromInt(c) },
-                    cc.esc => continue :state .esc,
-                    else => break :state,
-                }
-            },
-            .esc => {
-                switch (p.next()) {
-                    '[' => continue :state .csi,
-                    else => break :state,
-                }
-            },
-            .csi => {
-                switch (p.next()) {
-                    'A', 'B', 'C', 'D' => |c| event = .{ .key = .arrow(c) },
-                    '0'...'9' => continue :state .csi_num,
-                    else => break :state,
-                }
-            },
-            .csi_num => {
-                const s = p.i - 1;
-                const last_byte = p.buf[p.buf.len - 1];
-                switch (last_byte) {
-                    'R' => event = parseCursorPos(p.buf[s .. p.buf.len - 1]),
-                    else => break :state,
-                }
-            },
-        }
-        if (event) |e| self.event_queue.appendBounded(e) catch {};
-    }
-
-    fn parseCursorPos(buf: []u8) ?Event {
-        const sep = std.mem.indexOf(u8, buf, ";") orelse return null;
-        const row = std.fmt.parseInt(u16, buf[0..sep], 10) catch return null;
-        const col = std.fmt.parseInt(u16, buf[sep + 1 ..], 10) catch return null;
-        return .{ .cursor_pos = .{ .row = row, .col = col } };
     }
 
     pub fn pollEvent(self: *Screen) ?Event {
@@ -387,3 +316,78 @@ pub fn queryHandleSize(handle: std.fs.File.Handle) !posix.winsize {
     if (posix.errno(result) != .SUCCESS) return error.IoctlReturnedNonZero;
     return ws;
 }
+
+const Parser = struct {
+    const ParseState = enum { start, esc, csi, csi_num };
+    buf: []u8,
+    i: usize,
+    fn init(buf: []u8) Parser {
+        return .{ .buf = buf, .i = 0 };
+    }
+    fn isEnd(self: *Parser) bool {
+        return self.i >= self.buf.len;
+    }
+    fn next(self: *Parser) u8 {
+        if (self.isEnd()) return 0;
+        self.advance();
+        return self.buf[self.i - 1];
+    }
+    fn remaining(self: *Parser) usize {
+        if (self.isEnd()) return 0;
+        return self.buf.len - self.i;
+    }
+    fn advance(self: *Parser) void {
+        self.i += 1;
+    }
+    fn peek(self: *Parser) u8 {
+        return self.buf[self.i];
+    }
+    fn expect(self: *Parser, c: u8) ?void {
+        if (self.isEnd() or self.peek() != c) return null;
+        self.advance();
+    }
+
+    pub fn collectEvents(buf: []u8) ?Event {
+        var p = Parser.init(buf);
+        var event: ?Event = null;
+        state: switch (ParseState.start) {
+            .start => {
+                switch (p.next()) {
+                    'a'...'z', 'A'...'Z', '0'...'9' => |c| event = .{ .key = @enumFromInt(c) },
+                    3 => event = .interrupt,
+                    cc.esc => continue :state .esc,
+                    else => break :state,
+                }
+            },
+            .esc => {
+                switch (p.next()) {
+                    '[' => continue :state .csi,
+                    else => break :state,
+                }
+            },
+            .csi => {
+                switch (p.next()) {
+                    'A', 'B', 'C', 'D' => |c| event = .{ .key = .arrow(c) },
+                    '0'...'9' => continue :state .csi_num,
+                    else => break :state,
+                }
+            },
+            .csi_num => {
+                const s = p.i - 1;
+                const last_byte = p.buf[p.buf.len - 1];
+                switch (last_byte) {
+                    'R' => event = parseCursorPos(p.buf[s .. p.buf.len - 1]),
+                    else => break :state,
+                }
+            },
+        }
+        return event;
+    }
+
+    pub fn parseCursorPos(buf: []u8) ?Event {
+        const sep = std.mem.indexOf(u8, buf, ";") orelse return null;
+        const row = std.fmt.parseInt(u16, buf[0..sep], 10) catch return null;
+        const col = std.fmt.parseInt(u16, buf[sep + 1 ..], 10) catch return null;
+        return .{ .cursor_pos = .{ .row = row, .col = col } };
+    }
+};

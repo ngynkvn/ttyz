@@ -1,5 +1,6 @@
 const std = @import("std");
 const ttyz = @import("ttyz");
+const termdraw = ttyz.termdraw;
 const E = ttyz.E;
 
 pub fn main() !void {
@@ -22,9 +23,6 @@ pub fn main() !void {
     try canvas.drawBox(0, 0, 150, 150, 0xFFFFFFFF);
     try canvas.writeKitty(&w.interface);
 
-    {
-        return;
-    }
     var s = try ttyz.Screen.init();
     defer _ = s.deinit() catch |e| {
         std.log.err("Error deinitializing raw mode: {s}", .{@errorName(e)});
@@ -35,12 +33,13 @@ pub fn main() !void {
         try s.print(
             E.CLEAR_SCREEN ++
                 E.HOME ++
-                "Hello, world!\n" ++
-                "Size: {}x{}\n" ++
-                "{?}\n",
+                "Hello, world!\n\r" ++
+                "Size: {}x{}\n\r" ++
+                "{?}\n\r",
             .{ s.width, s.height, last_event },
         );
         try s.queryPos();
+        try termdraw.TermDraw.box(&s.writer.interface, .{ .x = 5, .y = 10, .width = 10, .height = 10 });
         while (s.pollEvent()) |event| {
             switch (event) {
                 .key => |key| {

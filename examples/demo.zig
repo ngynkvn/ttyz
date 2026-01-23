@@ -81,7 +81,7 @@ const Demo = struct {
         }
 
         try s.print(E.GOTO, .{ @as(u16, 1), padding });
-        try s.print("{s}" ++ E.RESET_STYLE ++ "\n", .{title});
+        try s.print("{s}" ++ E.RESET_STYLE ++ "\r\n", .{title});
     }
 
     fn drawTabBar(self: *Demo) !void {
@@ -97,14 +97,14 @@ const Demo = struct {
             }
             try s.print(" {s} " ++ E.RESET_STYLE ++ " ", .{tabName(t)});
         }
-        try s.print("\n", .{});
+        try s.print("\r\n", .{});
     }
 
     fn drawOverview(self: *Demo) !void {
         const s = self.screen;
         const start_row: u16 = 5;
 
-        try s.print(E.GOTO ++ E.BOLD ++ "Welcome to ttyz!" ++ E.RESET_STYLE ++ "\n", .{ start_row, @as(u16, 3) });
+        try s.print(E.GOTO ++ E.BOLD ++ "Welcome to ttyz!" ++ E.RESET_STYLE ++ "\r\n", .{ start_row, @as(u16, 3) });
 
         const features = [_][]const u8{
             "A Zig library for terminal user interfaces",
@@ -125,7 +125,7 @@ const Demo = struct {
         };
 
         for (features, 0..) |line, i| {
-            try s.print(E.GOTO ++ "{s}\n", .{ start_row + 2 + @as(u16, @intCast(i)), @as(u16, 5), line });
+            try s.print(E.GOTO ++ "{s}\r\n", .{ start_row + 2 + @as(u16, @intCast(i)), @as(u16, 5), line });
         }
 
         // Animated spinner
@@ -139,7 +139,7 @@ const Demo = struct {
         const start_row: u16 = 5;
 
         // 16 basic colors
-        try s.print(E.GOTO ++ E.BOLD ++ "16 Basic Colors:" ++ E.RESET_STYLE ++ "\n", .{ start_row, @as(u16, 3) });
+        try s.print(E.GOTO ++ E.BOLD ++ "16 Basic Colors:" ++ E.RESET_STYLE ++ "\r\n", .{ start_row, @as(u16, 3) });
 
         try s.print(E.GOTO, .{ start_row + 1, @as(u16, 3) });
         const bg_colors = [_][]const u8{ E.BG_BLACK, E.BG_RED, E.BG_GREEN, E.BG_YELLOW, E.BG_BLUE, E.BG_MAGENTA, E.BG_CYAN, E.BG_WHITE };
@@ -147,17 +147,17 @@ const Demo = struct {
         for (bg_colors) |bg| {
             try s.print("{s}  " ++ E.RESET_STYLE, .{bg});
         }
-        try s.print("  Normal\n", .{});
+        try s.print("  Normal\r\n", .{});
 
         try s.print(E.GOTO, .{ start_row + 2, @as(u16, 3) });
         const bright_bg = [_][]const u8{ E.BG_BRIGHT_BLACK, E.BG_BRIGHT_RED, E.BG_BRIGHT_GREEN, E.BG_BRIGHT_YELLOW, E.BG_BRIGHT_BLUE, E.BG_BRIGHT_MAGENTA, E.BG_BRIGHT_CYAN, E.BG_BRIGHT_WHITE };
         for (bright_bg) |bg| {
             try s.print("{s}  " ++ E.RESET_STYLE, .{bg});
         }
-        try s.print("  Bright\n", .{});
+        try s.print("  Bright\r\n", .{});
 
         // 256 color palette
-        try s.print(E.GOTO ++ E.BOLD ++ "\n256 Color Palette:" ++ E.RESET_STYLE ++ "\n", .{ start_row + 4, @as(u16, 3) });
+        try s.print(E.GOTO ++ E.BOLD ++ "\r\n256 Color Palette:" ++ E.RESET_STYLE ++ "\r\n", .{ start_row + 4, @as(u16, 3) });
 
         // Standard colors (0-15)
         try s.print(E.GOTO, .{ start_row + 5, @as(u16, 3) });
@@ -183,7 +183,7 @@ const Demo = struct {
         }
 
         // True color gradient
-        try s.print(E.GOTO ++ E.BOLD ++ "\nTrue Color (24-bit):" ++ E.RESET_STYLE ++ "\n", .{ start_row + 9, @as(u16, 3) });
+        try s.print(E.GOTO ++ E.BOLD ++ "\r\nTrue Color (24-bit):" ++ E.RESET_STYLE ++ "\r\n", .{ start_row + 9, @as(u16, 3) });
 
         try s.print(E.GOTO, .{ start_row + 10, @as(u16, 3) });
         var x: u8 = 0;
@@ -195,7 +195,7 @@ const Demo = struct {
         }
 
         // Text styles
-        try s.print(E.GOTO ++ E.BOLD ++ "\nText Styles:" ++ E.RESET_STYLE ++ "\n", .{ start_row + 12, @as(u16, 3) });
+        try s.print(E.GOTO ++ E.BOLD ++ "\r\nText Styles:" ++ E.RESET_STYLE ++ "\r\n", .{ start_row + 12, @as(u16, 3) });
         try s.print(E.GOTO, .{ start_row + 13, @as(u16, 3) });
         try s.print(E.BOLD ++ "Bold" ++ E.RESET_STYLE ++ "  ", .{});
         try s.print(E.DIM ++ "Dim" ++ E.RESET_STYLE ++ "  ", .{});
@@ -214,13 +214,13 @@ const Demo = struct {
         const s = self.screen;
         const start_row: u16 = 5;
 
-        try s.print(E.GOTO ++ E.BOLD ++ "Event Tracking:" ++ E.RESET_STYLE ++ "\n", .{ start_row, @as(u16, 3) });
+        try s.print(E.GOTO ++ E.BOLD ++ "Event Tracking:" ++ E.RESET_STYLE ++ "\r\n", .{ start_row, @as(u16, 3) });
 
         // Mouse position
-        try s.print(E.GOTO ++ "Mouse Position: " ++ E.FG_GREEN ++ "({}, {})" ++ E.RESET_STYLE ++ "    \n", .{ start_row + 2, @as(u16, 5), self.mouse_pos.row, self.mouse_pos.col });
+        try s.print(E.GOTO ++ "Mouse Position: " ++ E.FG_GREEN ++ "({}, {})" ++ E.RESET_STYLE ++ "    \r\n", .{ start_row + 2, @as(u16, 5), self.mouse_pos.row, self.mouse_pos.col });
 
         // Click count
-        try s.print(E.GOTO ++ "Click Count:    " ++ E.FG_YELLOW ++ "{}" ++ E.RESET_STYLE ++ "    \n", .{ start_row + 3, @as(u16, 5), self.click_count });
+        try s.print(E.GOTO ++ "Click Count:    " ++ E.FG_YELLOW ++ "{}" ++ E.RESET_STYLE ++ "    \r\n", .{ start_row + 3, @as(u16, 5), self.click_count });
 
         // Key history
         try s.print(E.GOTO ++ "Recent Keys:    " ++ E.FG_CYAN, .{ start_row + 4, @as(u16, 5) });
@@ -231,7 +231,7 @@ const Demo = struct {
                 try s.print("[?] ", .{});
             }
         }
-        try s.print(E.RESET_STYLE ++ "\n", .{});
+        try s.print(E.RESET_STYLE ++ "\r\n", .{});
 
         // Instructions
         try s.print(E.GOTO ++ E.DIM ++ "Move your mouse, click, and press keys to see events" ++ E.RESET_STYLE, .{ start_row + 6, @as(u16, 5) });
@@ -310,7 +310,7 @@ const Demo = struct {
         const s = self.screen;
         const start_row: u16 = 5;
 
-        try s.print(E.GOTO ++ E.BOLD ++ "Text Utilities:" ++ E.RESET_STYLE ++ "\n", .{ start_row, @as(u16, 3) });
+        try s.print(E.GOTO ++ E.BOLD ++ "Text Utilities:" ++ E.RESET_STYLE ++ "\r\n", .{ start_row, @as(u16, 3) });
 
         // Padding demo
         var buf: [40]u8 = undefined;
@@ -333,7 +333,7 @@ const Demo = struct {
         try s.print(E.GOTO ++ E.FG_CYAN ++ "{s}" ++ E.RESET_STYLE, .{ start_row + 8, @as(u16, 22), repeated });
 
         // Colorz demo
-        try s.print(E.GOTO ++ E.BOLD ++ "\nColorz Format Strings:" ++ E.RESET_STYLE, .{ start_row + 10, @as(u16, 3) });
+        try s.print(E.GOTO ++ E.BOLD ++ "\r\nColorz Format Strings:" ++ E.RESET_STYLE, .{ start_row + 10, @as(u16, 3) });
 
         var clr = ttyz.colorz.wrap(&s.writer.interface);
         try s.print(E.GOTO, .{ start_row + 11, @as(u16, 3) });

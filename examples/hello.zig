@@ -15,9 +15,9 @@ pub fn main(_: std.process.Init) !void {
     try screen.home();
 
     // Print colored output
-    try screen.print(ttyz.E.FG_GREEN ++ "Hello, " ++ ttyz.E.FG_CYAN ++ "ttyz" ++ ttyz.E.FG_GREEN ++ "!" ++ ttyz.E.RESET_STYLE ++ "\n\n", .{});
-    try screen.print("Screen size: {}x{}\n", .{ screen.width, screen.height });
-    try screen.print("\nPress any key to exit...", .{});
+    try screen.print(ttyz.E.FG_GREEN ++ "Hello, " ++ ttyz.E.FG_CYAN ++ "ttyz" ++ ttyz.E.FG_GREEN ++ "!" ++ ttyz.E.RESET_STYLE ++ "\r\n\r\n", .{});
+    try screen.print("Screen size: {}x{}\r\n", .{ screen.width, screen.height });
+    try screen.print("\r\nPress any key to exit...", .{});
     try screen.flush();
 
     // Wait for a keypress

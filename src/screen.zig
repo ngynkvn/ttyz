@@ -3,6 +3,18 @@
 //! Manages raw mode initialization, event handling, and output buffering.
 //! Supports both real TTY and test backends for output capture.
 
+const std = @import("std");
+const posix = std.posix;
+const system = posix.system;
+
+const ansi = @import("ansi.zig");
+const backend_mod = @import("backend.zig");
+pub const Backend = backend_mod.Backend;
+pub const TtyBackend = backend_mod.TtyBackend;
+pub const TestBackend = backend_mod.TestBackend;
+const Event = @import("event.zig").Event;
+const parser = @import("parser.zig");
+
 var orig_termios: ?posix.termios = null;
 var tty_fd: ?posix.fd_t = null;
 
@@ -265,10 +277,9 @@ pub const Screen = struct {
         if (bytes_read == 0) return;
 
         for (input_buffer[0..bytes_read]) |byte| {
-            const action = self.input_parser.advance(byte);
-            if (self.actionToEvent(action, byte)) |ev| {
-                self.pushEvent(ev);
-            }
+            const action = self.input_parser.advance(byte) orelse continue;
+            const ev = self.actionToEvent(action, byte) orelse continue;
+            self.pushEvent(ev);
         }
     }
 
@@ -392,18 +403,6 @@ pub fn panicTty(msg: []const u8, ra: ?usize) noreturn {
     std.log.err("panic: {s}", .{msg});
     std.debug.defaultPanic(msg, ra);
 }
-
-const std = @import("std");
-const posix = std.posix;
-const system = posix.system;
-
-const ansi = @import("ansi.zig");
-const backend_mod = @import("backend.zig");
-pub const Backend = backend_mod.Backend;
-pub const TtyBackend = backend_mod.TtyBackend;
-pub const TestBackend = backend_mod.TestBackend;
-const Event = @import("event.zig").Event;
-const parser = @import("parser.zig");
 
 // =============================================================================
 // Tests

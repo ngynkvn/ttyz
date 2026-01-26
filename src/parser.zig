@@ -4,7 +4,6 @@
 //! This parser uses a transition table for efficient byte-by-byte processing
 //! of ANSI escape sequences.
 
-
 /// Parser states from the DEC ANSI state machine
 pub const State = enum(u4) {
     ground,
@@ -26,7 +25,7 @@ pub const State = enum(u4) {
 
 /// Parser actions
 pub const Action = enum(u4) {
-    none,
+    // none,
     ignore,
     print,
     execute,
@@ -42,284 +41,6 @@ pub const Action = enum(u4) {
     osc_put,
     osc_end,
 };
-
-/// A transition entry containing an action and next state
-pub const Transition = struct {
-    action: Action,
-    state: State,
-    pub const none = Transition{ .action = .none, .state = .ground };
-};
-
-/// Transition table type: indexed by [state][byte]
-pub const TransitionTable = [State.fields.len][256]Transition;
-
-/// Build the complete transition table at comptime
-pub const table: TransitionTable = buildTable();
-
-fn buildTable() TransitionTable {
-    @setEvalBranchQuota(100000);
-    var t: TransitionTable = undefined;
-
-    // Initialize all to none/same-state
-    for (0..std.meta.fields(State).len) |s| {
-        const state: State = @enumFromInt(s);
-        for (0..256) |b| {
-            t[s][b] = .{ .action = .none, .state = state };
-        }
-    }
-
-    // === ANYWHERE transitions (apply to all states) ===
-    for (0..std.meta.fields(State).len) |s| {
-        // CAN, SUB -> execute, ground
-        t[s][0x18] = .{ .action = .execute, .state = .ground };
-        t[s][0x1A] = .{ .action = .execute, .state = .ground };
-
-        // ESC -> clear, escape
-        t[s][0x1B] = .{ .action = .clear, .state = .escape };
-
-        // ST (0x9C) -> ground (with state-specific action handled separately)
-        t[s][0x9C] = .{ .action = .none, .state = .ground };
-    }
-
-    // ST actions for specific states
-    t[@intFromEnum(State.dcs_passthrough)][0x9C] = .{ .action = .unhook, .state = .ground };
-    t[@intFromEnum(State.osc_string)][0x9C] = .{ .action = .osc_end, .state = .ground };
-
-    // === 8-bit C1 controls (anywhere) ===
-    for (0..std.meta.fields(State).len) |s| {
-        // CSI (0x9B)
-        t[s][0x9B] = .{ .action = .clear, .state = .csi_entry };
-        // DCS (0x90)
-        t[s][0x90] = .{ .action = .clear, .state = .dcs_entry };
-        // OSC (0x9D)
-        t[s][0x9D] = .{ .action = .osc_start, .state = .osc_string };
-        // SOS (0x98), PM (0x9E), APC (0x9F)
-        t[s][0x98] = .{ .action = .none, .state = .sos_pm_apc_string };
-        t[s][0x9E] = .{ .action = .none, .state = .sos_pm_apc_string };
-        t[s][0x9F] = .{ .action = .none, .state = .sos_pm_apc_string };
-
-        // Other C1 codes -> execute, ground
-        for ([_]u8{ 0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8A, 0x8B, 0x8C, 0x8D, 0x8E, 0x8F, 0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x99, 0x9A }) |c| {
-            t[s][c] = .{ .action = .execute, .state = .ground };
-        }
-    }
-
-    // === GROUND state ===
-    const ground = @intFromEnum(State.ground);
-    // C0 controls -> execute
-    for (0x00..0x18) |b| t[ground][b] = .{ .action = .execute, .state = .ground };
-    t[ground][0x19] = .{ .action = .execute, .state = .ground };
-    for (0x1C..0x20) |b| t[ground][b] = .{ .action = .execute, .state = .ground };
-    // Printable -> print
-    for (0x20..0x80) |b| t[ground][b] = .{ .action = .print, .state = .ground };
-
-    // === ESCAPE state ===
-    const escape = @intFromEnum(State.escape);
-    // C0 controls -> execute
-    for (0x00..0x18) |b| t[escape][b] = .{ .action = .execute, .state = .escape };
-    t[escape][0x19] = .{ .action = .execute, .state = .escape };
-    for (0x1C..0x20) |b| t[escape][b] = .{ .action = .execute, .state = .escape };
-    // Intermediate (0x20-0x2F) -> collect, escape_intermediate
-    for (0x20..0x30) |b| t[escape][b] = .{ .action = .collect, .state = .escape_intermediate };
-    // 0x30-0x4F -> esc_dispatch (except special cases)
-    for (0x30..0x50) |b| t[escape][b] = .{ .action = .esc_dispatch, .state = .ground };
-    // 'P' (0x50) -> DCS
-    t[escape][0x50] = .{ .action = .clear, .state = .dcs_entry };
-    // 0x51-0x57 -> esc_dispatch
-    for (0x51..0x58) |b| t[escape][b] = .{ .action = .esc_dispatch, .state = .ground };
-    // 'X' (0x58) -> SOS
-    t[escape][0x58] = .{ .action = .none, .state = .sos_pm_apc_string };
-    // 'Y', 'Z' -> esc_dispatch
-    t[escape][0x59] = .{ .action = .esc_dispatch, .state = .ground };
-    t[escape][0x5A] = .{ .action = .esc_dispatch, .state = .ground };
-    // '[' (0x5B) -> CSI
-    t[escape][0x5B] = .{ .action = .clear, .state = .csi_entry };
-    // '\' (0x5C) -> esc_dispatch (ST)
-    t[escape][0x5C] = .{ .action = .esc_dispatch, .state = .ground };
-    // ']' (0x5D) -> OSC
-    t[escape][0x5D] = .{ .action = .osc_start, .state = .osc_string };
-    // '^' (0x5E) -> PM
-    t[escape][0x5E] = .{ .action = .none, .state = .sos_pm_apc_string };
-    // '_' (0x5F) -> APC
-    t[escape][0x5F] = .{ .action = .none, .state = .sos_pm_apc_string };
-    // 0x60-0x7E -> esc_dispatch
-    for (0x60..0x7F) |b| t[escape][b] = .{ .action = .esc_dispatch, .state = .ground };
-    // DEL (0x7F) -> ignore
-    t[escape][0x7F] = .{ .action = .ignore, .state = .escape };
-
-    // === ESCAPE_INTERMEDIATE state ===
-    const escape_intermediate = @intFromEnum(State.escape_intermediate);
-    // C0 controls -> execute
-    for (0x00..0x18) |b| t[escape_intermediate][b] = .{ .action = .execute, .state = .escape_intermediate };
-    t[escape_intermediate][0x19] = .{ .action = .execute, .state = .escape_intermediate };
-    for (0x1C..0x20) |b| t[escape_intermediate][b] = .{ .action = .execute, .state = .escape_intermediate };
-    // Intermediate (0x20-0x2F) -> collect
-    for (0x20..0x30) |b| t[escape_intermediate][b] = .{ .action = .collect, .state = .escape_intermediate };
-    // 0x30-0x7E -> esc_dispatch
-    for (0x30..0x7F) |b| t[escape_intermediate][b] = .{ .action = .esc_dispatch, .state = .ground };
-    // DEL -> ignore
-    t[escape_intermediate][0x7F] = .{ .action = .ignore, .state = .escape_intermediate };
-
-    // === CSI_ENTRY state ===
-    const csi_entry = @intFromEnum(State.csi_entry);
-    // C0 controls -> execute
-    for (0x00..0x18) |b| t[csi_entry][b] = .{ .action = .execute, .state = .csi_entry };
-    t[csi_entry][0x19] = .{ .action = .execute, .state = .csi_entry };
-    for (0x1C..0x20) |b| t[csi_entry][b] = .{ .action = .execute, .state = .csi_entry };
-    // Intermediate (0x20-0x2F) -> collect, csi_intermediate
-    for (0x20..0x30) |b| t[csi_entry][b] = .{ .action = .collect, .state = .csi_intermediate };
-    // Digits (0x30-0x39) -> param, csi_param
-    for (0x30..0x3A) |b| t[csi_entry][b] = .{ .action = .param, .state = .csi_param };
-    // ':' (0x3A) -> csi_ignore
-    t[csi_entry][0x3A] = .{ .action = .none, .state = .csi_ignore };
-    // ';' (0x3B) -> param, csi_param
-    t[csi_entry][0x3B] = .{ .action = .param, .state = .csi_param };
-    // '<', '=', '>', '?' (0x3C-0x3F) -> collect (private marker), csi_param
-    for (0x3C..0x40) |b| t[csi_entry][b] = .{ .action = .collect, .state = .csi_param };
-    // Final bytes (0x40-0x7E) -> csi_dispatch
-    for (0x40..0x7F) |b| t[csi_entry][b] = .{ .action = .csi_dispatch, .state = .ground };
-    // DEL -> ignore
-    t[csi_entry][0x7F] = .{ .action = .ignore, .state = .csi_entry };
-
-    // === CSI_PARAM state ===
-    const csi_param = @intFromEnum(State.csi_param);
-    // C0 controls -> execute
-    for (0x00..0x18) |b| t[csi_param][b] = .{ .action = .execute, .state = .csi_param };
-    t[csi_param][0x19] = .{ .action = .execute, .state = .csi_param };
-    for (0x1C..0x20) |b| t[csi_param][b] = .{ .action = .execute, .state = .csi_param };
-    // Intermediate (0x20-0x2F) -> collect, csi_intermediate
-    for (0x20..0x30) |b| t[csi_param][b] = .{ .action = .collect, .state = .csi_intermediate };
-    // Digits (0x30-0x39) -> param
-    for (0x30..0x3A) |b| t[csi_param][b] = .{ .action = .param, .state = .csi_param };
-    // ':' and 0x3C-0x3F -> csi_ignore (invalid in param)
-    t[csi_param][0x3A] = .{ .action = .none, .state = .csi_ignore };
-    // ';' -> param
-    t[csi_param][0x3B] = .{ .action = .param, .state = .csi_param };
-    for (0x3C..0x40) |b| t[csi_param][b] = .{ .action = .none, .state = .csi_ignore };
-    // Final bytes (0x40-0x7E) -> csi_dispatch
-    for (0x40..0x7F) |b| t[csi_param][b] = .{ .action = .csi_dispatch, .state = .ground };
-    // DEL -> ignore
-    t[csi_param][0x7F] = .{ .action = .ignore, .state = .csi_param };
-
-    // === CSI_INTERMEDIATE state ===
-    const csi_intermediate = @intFromEnum(State.csi_intermediate);
-    // C0 controls -> execute
-    for (0x00..0x18) |b| t[csi_intermediate][b] = .{ .action = .execute, .state = .csi_intermediate };
-    t[csi_intermediate][0x19] = .{ .action = .execute, .state = .csi_intermediate };
-    for (0x1C..0x20) |b| t[csi_intermediate][b] = .{ .action = .execute, .state = .csi_intermediate };
-    // Intermediate (0x20-0x2F) -> collect
-    for (0x20..0x30) |b| t[csi_intermediate][b] = .{ .action = .collect, .state = .csi_intermediate };
-    // 0x30-0x3F -> csi_ignore (invalid)
-    for (0x30..0x40) |b| t[csi_intermediate][b] = .{ .action = .none, .state = .csi_ignore };
-    // Final bytes (0x40-0x7E) -> csi_dispatch
-    for (0x40..0x7F) |b| t[csi_intermediate][b] = .{ .action = .csi_dispatch, .state = .ground };
-    // DEL -> ignore
-    t[csi_intermediate][0x7F] = .{ .action = .ignore, .state = .csi_intermediate };
-
-    // === CSI_IGNORE state ===
-    const csi_ignore = @intFromEnum(State.csi_ignore);
-    // C0 controls -> execute
-    for (0x00..0x18) |b| t[csi_ignore][b] = .{ .action = .execute, .state = .csi_ignore };
-    t[csi_ignore][0x19] = .{ .action = .execute, .state = .csi_ignore };
-    for (0x1C..0x20) |b| t[csi_ignore][b] = .{ .action = .execute, .state = .csi_ignore };
-    // 0x20-0x3F -> ignore
-    for (0x20..0x40) |b| t[csi_ignore][b] = .{ .action = .ignore, .state = .csi_ignore };
-    // Final bytes (0x40-0x7E) -> ground
-    for (0x40..0x7F) |b| t[csi_ignore][b] = .{ .action = .none, .state = .ground };
-    // DEL -> ignore
-    t[csi_ignore][0x7F] = .{ .action = .ignore, .state = .csi_ignore };
-
-    // === DCS_ENTRY state ===
-    const dcs_entry = @intFromEnum(State.dcs_entry);
-    // 0x00-0x1F -> ignore
-    for (0x00..0x20) |b| t[dcs_entry][b] = .{ .action = .ignore, .state = .dcs_entry };
-    // ESC should still be able to interrupt (restore anywhere rule)
-    t[dcs_entry][0x1B] = .{ .action = .clear, .state = .escape };
-    // Intermediate (0x20-0x2F) -> collect, dcs_intermediate
-    for (0x20..0x30) |b| t[dcs_entry][b] = .{ .action = .collect, .state = .dcs_intermediate };
-    // Digits (0x30-0x39) -> param, dcs_param
-    for (0x30..0x3A) |b| t[dcs_entry][b] = .{ .action = .param, .state = .dcs_param };
-    // ':' -> dcs_ignore
-    t[dcs_entry][0x3A] = .{ .action = .none, .state = .dcs_ignore };
-    // ';' -> param, dcs_param
-    t[dcs_entry][0x3B] = .{ .action = .param, .state = .dcs_param };
-    // '<', '=', '>', '?' -> collect (private marker), dcs_param
-    for (0x3C..0x40) |b| t[dcs_entry][b] = .{ .action = .collect, .state = .dcs_param };
-    // Final bytes (0x40-0x7E) -> hook, dcs_passthrough
-    for (0x40..0x7F) |b| t[dcs_entry][b] = .{ .action = .hook, .state = .dcs_passthrough };
-    // DEL -> ignore
-    t[dcs_entry][0x7F] = .{ .action = .ignore, .state = .dcs_entry };
-
-    // === DCS_PARAM state ===
-    const dcs_param = @intFromEnum(State.dcs_param);
-    // 0x00-0x1F -> ignore
-    for (0x00..0x20) |b| t[dcs_param][b] = .{ .action = .ignore, .state = .dcs_param };
-    // ESC should still be able to interrupt (restore anywhere rule)
-    t[dcs_param][0x1B] = .{ .action = .clear, .state = .escape };
-    // Intermediate (0x20-0x2F) -> collect, dcs_intermediate
-    for (0x20..0x30) |b| t[dcs_param][b] = .{ .action = .collect, .state = .dcs_intermediate };
-    // Digits (0x30-0x39) -> param
-    for (0x30..0x3A) |b| t[dcs_param][b] = .{ .action = .param, .state = .dcs_param };
-    // ':' and 0x3C-0x3F -> dcs_ignore
-    t[dcs_param][0x3A] = .{ .action = .none, .state = .dcs_ignore };
-    // ';' -> param
-    t[dcs_param][0x3B] = .{ .action = .param, .state = .dcs_param };
-    for (0x3C..0x40) |b| t[dcs_param][b] = .{ .action = .none, .state = .dcs_ignore };
-    // Final bytes (0x40-0x7E) -> hook, dcs_passthrough
-    for (0x40..0x7F) |b| t[dcs_param][b] = .{ .action = .hook, .state = .dcs_passthrough };
-    // DEL -> ignore
-    t[dcs_param][0x7F] = .{ .action = .ignore, .state = .dcs_param };
-
-    // === DCS_INTERMEDIATE state ===
-    const dcs_intermediate = @intFromEnum(State.dcs_intermediate);
-    // 0x00-0x1F -> ignore
-    for (0x00..0x20) |b| t[dcs_intermediate][b] = .{ .action = .ignore, .state = .dcs_intermediate };
-    // ESC should still be able to interrupt (restore anywhere rule)
-    t[dcs_intermediate][0x1B] = .{ .action = .clear, .state = .escape };
-    // Intermediate (0x20-0x2F) -> collect
-    for (0x20..0x30) |b| t[dcs_intermediate][b] = .{ .action = .collect, .state = .dcs_intermediate };
-    // 0x30-0x3F -> dcs_ignore
-    for (0x30..0x40) |b| t[dcs_intermediate][b] = .{ .action = .none, .state = .dcs_ignore };
-    // Final bytes (0x40-0x7E) -> hook, dcs_passthrough
-    for (0x40..0x7F) |b| t[dcs_intermediate][b] = .{ .action = .hook, .state = .dcs_passthrough };
-    // DEL -> ignore
-    t[dcs_intermediate][0x7F] = .{ .action = .ignore, .state = .dcs_intermediate };
-
-    // === DCS_PASSTHROUGH state ===
-    const dcs_passthrough = @intFromEnum(State.dcs_passthrough);
-    // 0x00-0x17, 0x19, 0x1C-0x1F, 0x20-0x7E -> put
-    for (0x00..0x18) |b| t[dcs_passthrough][b] = .{ .action = .put, .state = .dcs_passthrough };
-    t[dcs_passthrough][0x19] = .{ .action = .put, .state = .dcs_passthrough };
-    for (0x1C..0x20) |b| t[dcs_passthrough][b] = .{ .action = .put, .state = .dcs_passthrough };
-    for (0x20..0x7F) |b| t[dcs_passthrough][b] = .{ .action = .put, .state = .dcs_passthrough };
-    // DEL -> ignore
-    t[dcs_passthrough][0x7F] = .{ .action = .ignore, .state = .dcs_passthrough };
-
-    // === DCS_IGNORE state ===
-    const dcs_ignore = @intFromEnum(State.dcs_ignore);
-    // 0x00-0x7F -> ignore (wait for ST)
-    for (0x00..0x80) |b| t[dcs_ignore][b] = .{ .action = .ignore, .state = .dcs_ignore };
-    // ESC should still be able to interrupt this state (restore anywhere rule)
-    t[dcs_ignore][0x1B] = .{ .action = .clear, .state = .escape };
-
-    // === OSC_STRING state ===
-    const osc_string = @intFromEnum(State.osc_string);
-    // BEL (0x07) -> osc_end
-    t[osc_string][0x07] = .{ .action = .osc_end, .state = .ground };
-    // 0x08-0x0D -> osc_put (some terminals allow these)
-    for (0x08..0x0E) |b| t[osc_string][b] = .{ .action = .osc_put, .state = .osc_string };
-    // 0x20-0x7F -> osc_put
-    for (0x20..0x80) |b| t[osc_string][b] = .{ .action = .osc_put, .state = .osc_string };
-
-    // === SOS_PM_APC_STRING state ===
-    // Everything ignored until ST (handled by anywhere rules)
-    const sos_pm_apc = @intFromEnum(State.sos_pm_apc_string);
-    for (0x00..0x80) |b| t[sos_pm_apc][b] = .{ .action = .ignore, .state = .sos_pm_apc_string };
-    // ESC should still be able to interrupt this state (restore anywhere rule)
-    t[sos_pm_apc][0x1B] = .{ .action = .clear, .state = .escape };
-
-    return t;
-}
 
 /// Maximum number of parameters in a CSI sequence
 pub const MAX_PARAMS = 16;
@@ -406,14 +127,13 @@ pub const Parser = struct {
 
     /// Process a single byte through the state machine
     /// Returns the action to take
-    pub fn advance(self: *Parser, byte: u8) Action {
+    pub fn advance(self: *Parser, byte: u8) ?Action {
         const trans = table[@intFromEnum(self.state)][byte];
 
         // Perform action
-        self.performAction(trans.action, byte);
-
+        if (trans.action) |action| self.performAction(action, byte);
         // Update state
-        self.state = trans.state;
+        if (trans.state) |state| self.state = state;
 
         return trans.action;
     }
@@ -875,3 +595,6 @@ test "transition table - anywhere ESC" {
 }
 
 const std = @import("std");
+
+const TransitionTable = @import("parser/table.zig").table;
+const table = TransitionTable;

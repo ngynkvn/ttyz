@@ -97,6 +97,162 @@ pub const ST = "\x1b\\";
 pub const BEL = "\x07";
 
 // =============================================================================
+// Comptime String Builder
+// =============================================================================
+
+/// Comptime string builder for ANSI styled text.
+///
+/// Example usage:
+/// ```zig
+/// // Styled text with auto-reset
+/// try writer.print(ansi.str("Title").bold().done() ++ "\r\n", .{});
+///
+/// // With format placeholders
+/// try writer.print(ansi.str("{s}").fg(.green).done(), .{value});
+///
+/// // Multiple styles
+/// try writer.print(ansi.str("Error: {s}").bold().fg(.red).done(), .{msg});
+/// ```
+pub fn str(comptime text: []const u8) String {
+    return .{ .text = text };
+}
+
+pub const String = struct {
+    prefix: []const u8 = "",
+    text: []const u8 = "",
+
+    /// Set foreground color
+    pub fn fg(comptime self: String, comptime color: FgColor) String {
+        return .{ .prefix = self.prefix ++ color.code(), .text = self.text };
+    }
+
+    /// Set background color
+    pub fn bg(comptime self: String, comptime color: BgColor) String {
+        return .{ .prefix = self.prefix ++ color.code(), .text = self.text };
+    }
+
+    /// Bold text
+    pub fn bold(comptime self: String) String {
+        return .{ .prefix = self.prefix ++ CSI ++ "1m", .text = self.text };
+    }
+
+    /// Dim/faint text
+    pub fn faint(comptime self: String) String {
+        return .{ .prefix = self.prefix ++ CSI ++ "2m", .text = self.text };
+    }
+
+    /// Italic text
+    pub fn italic(comptime self: String) String {
+        return .{ .prefix = self.prefix ++ CSI ++ "3m", .text = self.text };
+    }
+
+    /// Underlined text
+    pub fn underline(comptime self: String) String {
+        return .{ .prefix = self.prefix ++ CSI ++ "4m", .text = self.text };
+    }
+
+    /// Reverse video
+    pub fn reverse(comptime self: String) String {
+        return .{ .prefix = self.prefix ++ CSI ++ "7m", .text = self.text };
+    }
+
+    /// Strikethrough text
+    pub fn strikethrough(comptime self: String) String {
+        return .{ .prefix = self.prefix ++ CSI ++ "9m", .text = self.text };
+    }
+
+    /// Finalize and return the styled string (with auto-reset)
+    pub fn done(comptime self: String) []const u8 {
+        return self.prefix ++ self.text ++ CSI ++ "0m";
+    }
+
+    /// Return without auto-reset (for manual control)
+    pub fn raw(comptime self: String) []const u8 {
+        return self.prefix ++ self.text;
+    }
+};
+
+pub const FgColor = enum {
+    black,
+    red,
+    green,
+    yellow,
+    blue,
+    magenta,
+    cyan,
+    white,
+    bright_black,
+    bright_red,
+    bright_green,
+    bright_yellow,
+    bright_blue,
+    bright_magenta,
+    bright_cyan,
+    bright_white,
+
+    pub fn code(comptime self: FgColor) []const u8 {
+        return switch (self) {
+            .black => CSI ++ "30m",
+            .red => CSI ++ "31m",
+            .green => CSI ++ "32m",
+            .yellow => CSI ++ "33m",
+            .blue => CSI ++ "34m",
+            .magenta => CSI ++ "35m",
+            .cyan => CSI ++ "36m",
+            .white => CSI ++ "37m",
+            .bright_black => CSI ++ "90m",
+            .bright_red => CSI ++ "91m",
+            .bright_green => CSI ++ "92m",
+            .bright_yellow => CSI ++ "93m",
+            .bright_blue => CSI ++ "94m",
+            .bright_magenta => CSI ++ "95m",
+            .bright_cyan => CSI ++ "96m",
+            .bright_white => CSI ++ "97m",
+        };
+    }
+};
+
+pub const BgColor = enum {
+    black,
+    red,
+    green,
+    yellow,
+    blue,
+    magenta,
+    cyan,
+    white,
+    bright_black,
+    bright_red,
+    bright_green,
+    bright_yellow,
+    bright_blue,
+    bright_magenta,
+    bright_cyan,
+    bright_white,
+
+    pub fn code(comptime self: BgColor) []const u8 {
+        return switch (self) {
+            .black => CSI ++ "40m",
+            .red => CSI ++ "41m",
+            .green => CSI ++ "42m",
+            .yellow => CSI ++ "43m",
+            .blue => CSI ++ "44m",
+            .magenta => CSI ++ "45m",
+            .cyan => CSI ++ "46m",
+            .white => CSI ++ "47m",
+            .bright_black => CSI ++ "100m",
+            .bright_red => CSI ++ "101m",
+            .bright_green => CSI ++ "102m",
+            .bright_yellow => CSI ++ "103m",
+            .bright_blue => CSI ++ "104m",
+            .bright_magenta => CSI ++ "105m",
+            .bright_cyan => CSI ++ "106m",
+            .bright_white => CSI ++ "107m",
+        };
+    }
+};
+
+// =============================================================================
 // SGR (Select Graphic Rendition) Attributes
 // =============================================================================
 
@@ -1171,6 +1327,32 @@ test "equivalency: screen sequences" {
     try std.testing.expectEqualStrings(E.ENABLE_MOUSE_TRACKING, mouse_tracking_enable);
     try std.testing.expectEqualStrings(E.DISABLE_MOUSE_TRACKING, mouse_tracking_disable);
     try std.testing.expectEqualStrings(E.REPORT_CURSOR_POS, cursor_position_report);
+}
+
+test "String builder" {
+    // Basic styling with auto-reset
+    const bold_text = comptime str("Hello").bold().done();
+    try std.testing.expectEqualStrings("\x1b[1mHello\x1b[0m", bold_text);
+
+    // Foreground color
+    const green_text = comptime str("World").fg(.green).done();
+    try std.testing.expectEqualStrings("\x1b[32mWorld\x1b[0m", green_text);
+
+    // Combined styles
+    const styled = comptime str("Test").bold().fg(.cyan).done();
+    try std.testing.expectEqualStrings("\x1b[1m\x1b[36mTest\x1b[0m", styled);
+
+    // With format placeholder
+    const fmt_str = comptime str("{s}").fg(.green).done();
+    try std.testing.expectEqualStrings("\x1b[32m{s}\x1b[0m", fmt_str);
+
+    // Raw (no auto-reset)
+    const raw_str = comptime str("text").fg(.red).raw();
+    try std.testing.expectEqualStrings("\x1b[31mtext", raw_str);
+
+    // Background color
+    const bg_str = comptime str("alert").bg(.red).fg(.white).done();
+    try std.testing.expectEqualStrings("\x1b[41m\x1b[37malert\x1b[0m", bg_str);
 }
 
 test "equivalency: format strings match" {

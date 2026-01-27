@@ -49,64 +49,62 @@
 
 /// A writer wrapper that parses inline color codes at compile time.
 /// Generic over any writer type that has write and print methods.
-pub fn Colorz(comptime WriterType: type) type {
-    return struct {
-        const Self = @This();
+pub const Colorz = struct {
+    const Self = @This();
 
-        /// The underlying writer.
-        inner: WriterType,
+    /// The underlying writer.
+    inner: std.Io.Writer,
 
-        /// Wrap an existing writer to enable color code parsing.
-        pub fn init(inner: WriterType) Self {
-            return .{ .inner = inner };
-        }
+    /// Wrap an existing writer to enable color code parsing.
+    pub fn init(inner: std.Io.Writer) Self {
+        return .{ .inner = inner };
+    }
 
-        /// Get the underlying writer for direct access.
-        pub fn writer(self: *Self) WriterType {
-            return self.inner;
-        }
+    /// Get the underlying writer for direct access.
+    pub fn writer(self: *Self) std.Io.Writer {
+        return self.inner;
+    }
 
-        /// Print a format string with color codes parsed at compile time.
-        /// Color codes like `@[.green]` are converted to ANSI sequences.
-        pub fn print(self: *Self, comptime fmt: []const u8, args: anytype) !void {
-            try self.inner.print(parseFmt(fmt), args);
-        }
+    /// Print a format string with color codes parsed at compile time.
+    /// Color codes like `@[.green]` are converted to ANSI sequences.
+    pub fn print(self: *Self, comptime fmt: []const u8, args: anytype) !void {
+        try self.inner.print(parseFmt(fmt), args);
+    }
 
-        /// Print text with a single foreground color applied, automatically resetting after.
-        pub fn printColored(self: *Self, color: Color, comptime fmt: []const u8, args: anytype) !void {
-            _ = try self.inner.write(color.fg());
-            _ = try self.inner.print(fmt ++ ansi.reset, args);
-        }
+    /// Print text with a single foreground color applied, automatically resetting after.
+    pub fn printColored(self: *Self, color: Color, comptime fmt: []const u8, args: anytype) !void {
+        _ = try self.inner.write(color.fg());
+        _ = try self.inner.print(fmt ++ ansi.reset, args);
+    }
 
-        /// Print text with foreground and background colors, automatically resetting after.
-        pub fn printStyled(self: *Self, fg_color: ?Color, bg_color: ?Color, style: ?Style, comptime fmt: []const u8, args: anytype) !void {
-            if (style) |s| _ = try self.inner.write(s.toAnsi());
-            if (fg_color) |c| _ = try self.inner.write(c.fg());
-            if (bg_color) |c| _ = try self.inner.write(c.bg());
-            _ = try self.inner.print(fmt ++ ansi.reset, args);
-        }
+    /// Print text with foreground and background colors, automatically resetting after.
+    pub fn printStyled(self: *Self, fg_color: ?Color, bg_color: ?Color, style: ?Style, comptime fmt: []const u8, args: anytype) !void {
+        if (style) |s| _ = try self.inner.write(s.toAnsi());
+        if (fg_color) |c| _ = try self.inner.write(c.fg());
+        if (bg_color) |c| _ = try self.inner.write(c.bg());
+        _ = try self.inner.print(fmt ++ ansi.reset, args);
+    }
 
-        /// Write a color sequence to the output.
-        pub fn setFg(self: *Self, color: Color) !void {
-            _ = try self.inner.write(color.fg());
-        }
+    /// Write a color sequence to the output.
+    pub fn setFg(self: *Self, color: Color) !void {
+        _ = try self.inner.write(color.fg());
+    }
 
-        /// Write a background color sequence to the output.
-        pub fn setBg(self: *Self, color: Color) !void {
-            _ = try self.inner.write(color.bg());
-        }
+    /// Write a background color sequence to the output.
+    pub fn setBg(self: *Self, color: Color) !void {
+        _ = try self.inner.write(color.bg());
+    }
 
-        /// Write a style sequence to the output.
-        pub fn setStyle(self: *Self, style: Style) !void {
-            _ = try self.inner.write(style.toAnsi());
-        }
+    /// Write a style sequence to the output.
+    pub fn setStyle(self: *Self, style: Style) !void {
+        _ = try self.inner.write(style.toAnsi());
+    }
 
-        /// Reset all colors and styles.
-        pub fn reset(self: *Self) !void {
-            _ = try self.inner.write(ansi.reset);
-        }
-    };
-}
+    /// Reset all colors and styles.
+    pub fn reset(self: *Self) !void {
+        _ = try self.inner.write(ansi.reset);
+    }
+};
 
 /// Wrap any writer to enable color code parsing.
 pub fn wrap(inner: anytype) Colorz(@TypeOf(inner)) {

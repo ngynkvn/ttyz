@@ -1,6 +1,7 @@
 //! 2D cell grid for terminal buffer management.
 
 const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
 
 
 /// A 2D grid of cells representing the terminal buffer.
@@ -11,8 +12,14 @@ pub const Buffer = struct {
     allocator: Allocator,
 
     /// Initialize a new buffer with the given dimensions.
+    /// Invariant: width * height must not overflow usize.
     pub fn init(allocator: Allocator, width: u16, height: u16) !Buffer {
         const size = @as(usize, width) * @as(usize, height);
+        // Ensure we're not creating an empty buffer unintentionally
+        // (an intentionally empty buffer is allowed but logged in debug)
+        if (width == 0 or height == 0) {
+            assert(size == 0); // Sanity check: if either dimension is 0, size must be 0
+        }
         const cells = try allocator.alloc(Cell, size);
         @memset(cells, Cell{});
         return .{
@@ -47,7 +54,10 @@ pub const Buffer = struct {
     /// Get the index for a given position.
     fn index(self: *const Buffer, x: u16, y: u16) ?usize {
         if (x >= self.width or y >= self.height) return null;
-        return @as(usize, y) * @as(usize, self.width) + @as(usize, x);
+        const idx = @as(usize, y) * @as(usize, self.width) + @as(usize, x);
+        // Invariant: computed index must be within allocated cells
+        assert(idx < self.cells.len);
+        return idx;
     }
 
     /// Get the cell at the given position.

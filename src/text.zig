@@ -10,6 +10,9 @@
 //! const width = text.graphemeCount("Hello");      // 5
 //! ```
 
+const std = @import("std");
+const assert = std.debug.assert;
+
 /// Text utilities for terminal output.
 pub const Text = @This();
 
@@ -18,6 +21,8 @@ pub fn truncate(allocator: std.mem.Allocator, text: []const u8, max_width: usize
     if (text.len <= max_width) return text;
     if (max_width <= 3) return text[0..max_width];
 
+    // Invariant: max_width > 3, so max_width - 3 is safe
+    assert(max_width > 3);
     const result = try allocator.alloc(u8, max_width);
     @memcpy(result[0 .. max_width - 3], text[0 .. max_width - 3]);
     @memcpy(result[max_width - 3 ..], "...");
@@ -29,6 +34,8 @@ pub fn padRight(text: []const u8, width: usize, buf: []u8) []const u8 {
     if (text.len >= width) return text[0..@min(text.len, buf.len)];
     const copy_len = @min(text.len, buf.len);
     @memcpy(buf[0..copy_len], text[0..copy_len]);
+    // Invariant: width > text.len and copy_len <= text.len, so width > copy_len
+    assert(width > copy_len);
     const pad_len = @min(width - copy_len, buf.len - copy_len);
     @memset(buf[copy_len..][0..pad_len], ' ');
     return buf[0 .. copy_len + pad_len];
@@ -37,6 +44,8 @@ pub fn padRight(text: []const u8, width: usize, buf: []u8) []const u8 {
 /// Pad text on the left with spaces to reach width
 pub fn padLeft(text: []const u8, width: usize, buf: []u8) []const u8 {
     if (text.len >= width) return text[0..@min(text.len, buf.len)];
+    // Invariant: width > text.len, so subtraction is safe
+    assert(width > text.len);
     const padding = width - text.len;
     const pad_len = @min(padding, buf.len);
     @memset(buf[0..pad_len], ' ');
@@ -171,5 +180,3 @@ test "repeat" {
     const result = repeat('-', 5, &buf);
     try std.testing.expectEqualStrings("-----", result);
 }
-
-const std = @import("std");

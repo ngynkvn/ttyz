@@ -3,6 +3,8 @@
 //! Inspired by Ratatui's layout system:
 //! https://docs.rs/ratatui/latest/ratatui/layout/struct.Layout.html
 
+const assert = std.debug.assert;
+
 
 
 /// Direction of layout splitting.
@@ -24,7 +26,17 @@ pub const Constraint = union(enum) {
     /// Fill remaining space with given weight.
     fill: u16,
     /// Ratio of available space (numerator, denominator).
+    /// Invariant: denominator must be non-zero.
     ratio: struct { num: u16, den: u16 },
+
+    /// Validate constraint invariants.
+    pub fn validate(self: Constraint) void {
+        switch (self) {
+            .ratio => |r| assert(r.den != 0), // Division by zero would occur
+            .percentage => |p| assert(p <= 100), // Percentage should be 0-100
+            else => {},
+        }
+    }
 
     /// Create a length constraint.
     pub fn len(n: u16) Constraint {
@@ -70,6 +82,13 @@ pub fn Layout(comptime N: usize) type {
 
         /// Split a rectangle into N areas based on constraints.
         pub fn areas(self: Self, rect: Rect) [N]Rect {
+            comptime assert(N > 0); // Layout must have at least one area
+
+            // Validate all constraints at runtime in debug builds
+            for (self.constraints) |constraint| {
+                constraint.validate();
+            }
+
             const total_spacing: u16 = if (N > 1) self.spacing *| @as(u16, N - 1) else 0;
             const available: u16 = switch (self.direction) {
                 .horizontal => rect.width -| total_spacing,
@@ -100,12 +119,15 @@ pub fn Layout(comptime N: usize) type {
 
             // Second pass: distribute remaining space to fill/max constraints
             if (fill_total > 0) {
+                // fill_total is guaranteed > 0 here, so division is safe
                 for (self.constraints, 0..) |constraint, i| {
                     switch (constraint) {
                         .fill => |w| {
+                            assert(fill_total > 0); // Invariant: division by zero check
                             sizes[i] = @intCast(remaining * w / fill_total);
                         },
                         .max => |n| {
+                            assert(fill_total > 0); // Invariant: division by zero check
                             const share: u16 = @intCast(remaining / fill_total);
                             sizes[i] = @min(share, n);
                         },

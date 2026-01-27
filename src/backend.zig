@@ -4,6 +4,8 @@
 //! - TtyBackend: Real terminal I/O via file descriptor
 //! - TestBackend: Captures output to buffer for testing
 
+const assert = std.debug.assert;
+
 /// Size returned by backend getSize.
 pub const Size = struct { width: u16, height: u16 };
 
@@ -108,7 +110,10 @@ pub const TtyBackend = struct {
     pub fn read(self: *TtyBackend, buf: []u8) !usize {
         const rc = system.read(self.fd, buf.ptr, buf.len);
         if (rc < 0) return error.ReadFailed;
-        return @intCast(rc);
+        const bytes_read: usize = @intCast(rc);
+        // Invariant: read cannot return more bytes than buffer size
+        assert(bytes_read <= buf.len);
+        return bytes_read;
     }
 
     pub fn flush(self: *TtyBackend) !void {
@@ -142,6 +147,8 @@ pub const TestBackend = struct {
     height: u16,
 
     pub fn init(allocator: std.mem.Allocator, width: u16, height: u16) TestBackend {
+        // Ensure non-zero dimensions for meaningful tests
+        assert(width > 0 and height > 0);
         return .{
             .output = .{},
             .allocator = allocator,

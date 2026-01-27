@@ -1,5 +1,7 @@
 //! Rectangle geometry for terminal coordinates.
 
+const std = @import("std");
+const assert = std.debug.assert;
 
 /// A rectangle area in the terminal.
 pub const Rect = struct {
@@ -19,18 +21,21 @@ pub const Rect = struct {
     }
 
     /// Check if a point is within this rectangle.
+    /// Uses saturating arithmetic to avoid overflow.
     pub fn contains(self: Rect, x: u16, y: u16) bool {
-        return x >= self.x and x < self.x + self.width and
-            y >= self.y and y < self.y + self.height;
+        return x >= self.x and x < self.x +| self.width and
+            y >= self.y and y < self.y +| self.height;
     }
 
     /// Get the intersection of two rectangles.
     /// Returns null if they don't overlap.
+    /// Uses saturating arithmetic to prevent overflow.
     pub fn intersect(self: Rect, other: Rect) ?Rect {
         const x1 = @max(self.x, other.x);
         const y1 = @max(self.y, other.y);
-        const x2 = @min(self.x + self.width, other.x + other.width);
-        const y2 = @min(self.y + self.height, other.y + other.height);
+        // Use saturating add to prevent overflow on large rectangles
+        const x2 = @min(self.x +| self.width, other.x +| other.width);
+        const y2 = @min(self.y +| self.height, other.y +| other.height);
 
         if (x1 >= x2 or y1 >= y2) return null;
 
@@ -43,27 +48,32 @@ pub const Rect = struct {
     }
 
     /// Shrink the rectangle by a margin on all sides.
+    /// Invariant: margin * 2 must not overflow u16.
     pub fn inner(self: Rect, margin: u16) Rect {
+        // Ensure margin * 2 won't overflow (max safe margin is 32767)
+        assert(margin <= std.math.maxInt(u16) / 2);
         const double_margin = margin * 2;
         if (self.width <= double_margin or self.height <= double_margin) {
             return .{ .x = self.x, .y = self.y, .width = 0, .height = 0 };
         }
         return .{
-            .x = self.x + margin,
-            .y = self.y + margin,
+            .x = self.x +| margin, // Saturating add for position
+            .y = self.y +| margin,
             .width = self.width - double_margin,
             .height = self.height - double_margin,
         };
     }
 
     /// Get the right edge x coordinate (exclusive).
+    /// Uses saturating arithmetic to prevent overflow.
     pub fn right(self: Rect) u16 {
-        return self.x + self.width;
+        return self.x +| self.width;
     }
 
     /// Get the bottom edge y coordinate (exclusive).
+    /// Uses saturating arithmetic to prevent overflow.
     pub fn bottom(self: Rect) u16 {
-        return self.y + self.height;
+        return self.y +| self.height;
     }
 
     /// Get the area (width * height).
@@ -109,5 +119,3 @@ test "Rect.isEmpty" {
     try std.testing.expect(Rect.sized(10, 0).isEmpty());
     try std.testing.expect(!Rect.sized(10, 10).isEmpty());
 }
-
-const std = @import("std");

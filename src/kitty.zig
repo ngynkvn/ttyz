@@ -13,6 +13,7 @@
 //! https://sw.kovidgoyal.net/kitty/graphics-protocol/
 
 const std = @import("std");
+const assert = std.debug.assert;
 
 // =============================================================================
 // Types
@@ -274,10 +275,17 @@ pub const Canvas = struct {
     pixels: []u8,
 
     pub fn initAlloc(allocator: std.mem.Allocator, width: usize, height: usize) !Canvas {
+        // Ensure size calculation won't overflow
+        const pixel_count = std.math.mul(usize, width, height) catch {
+            return error.Overflow;
+        };
+        const byte_count = std.math.mul(usize, pixel_count, 4) catch {
+            return error.Overflow;
+        };
         return .{
             .width = width,
             .height = height,
-            .pixels = try allocator.alloc(u8, width * height * 4),
+            .pixels = try allocator.alloc(u8, byte_count),
         };
     }
 
@@ -290,13 +298,16 @@ pub const Canvas = struct {
     }
 
     pub fn setPixel(self: *Canvas, x: usize, y: usize, r: u8, g: u8, b: u8, a: u8) void {
+        // Bounds check first to avoid overflow in index calculation
+        if (x >= self.width or y >= self.height) return;
+
         const idx = (y * self.width + x) * 4;
-        if (idx + 3 < self.pixels.len) {
-            self.pixels[idx] = r;
-            self.pixels[idx + 1] = g;
-            self.pixels[idx + 2] = b;
-            self.pixels[idx + 3] = a;
-        }
+        // Invariant: if bounds check passed, idx must be valid
+        assert(idx + 3 < self.pixels.len);
+        self.pixels[idx] = r;
+        self.pixels[idx + 1] = g;
+        self.pixels[idx + 2] = b;
+        self.pixels[idx + 3] = a;
     }
 
     pub fn drawBox(self: *Canvas, x: usize, y: usize, w: usize, h: usize, color: u32) void {

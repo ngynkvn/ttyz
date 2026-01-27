@@ -2,6 +2,7 @@
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
 
 pub const Buffer = @import("frame/buffer.zig").Buffer;
 pub const layout = @import("frame/layout.zig");
@@ -110,7 +111,9 @@ pub const Frame = struct {
         if (rect.width < 2 or rect.height < 2) return;
         const chars = border_style.chars();
         const x1, const y1 = .{ rect.x, rect.y };
-        const x2, const y2 = .{ rect.x + rect.width - 1, rect.y + rect.height - 1 };
+        // Invariant: width >= 2 and height >= 2, so subtraction is safe
+        assert(rect.width >= 2 and rect.height >= 2);
+        const x2, const y2 = .{ rect.x +| (rect.width - 1), rect.y +| (rect.height - 1) };
 
         self.buffer.set(x1, y1, .{ .char = chars.top_left, .fg = fg, .bg = bg, .style = style });
         self.buffer.set(x2, y1, .{ .char = chars.top_right, .fg = fg, .bg = bg, .style = style });

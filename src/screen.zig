@@ -4,6 +4,7 @@
 //! Supports both real TTY and test backends for output capture.
 
 const std = @import("std");
+const assert = std.debug.assert;
 const posix = std.posix;
 const system = posix.system;
 
@@ -224,6 +225,9 @@ pub const Screen = struct {
             'Z' => return .{ .key = .backtab },
             'R' => {
                 if (params.len >= 2) {
+                    // Invariant: cursor position params should be non-negative
+                    // (they're u16 so always >= 0, but verify slice access is safe)
+                    assert(params.len >= 2);
                     return .{ .cursor_pos = .{
                         .row = params[0],
                         .col = params[1],
@@ -241,6 +245,8 @@ pub const Screen = struct {
             },
             'M', 'm' => {
                 if (p.private_marker == '<' and params.len >= 3) {
+                    // Invariant: mouse events require exactly 3 params
+                    assert(params.len >= 3);
                     var mouse = Event.Mouse.fromButtonCode(params[0], final);
                     mouse.col = params[1];
                     mouse.row = params[2];

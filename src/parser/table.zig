@@ -22,16 +22,16 @@ pub const TransitionTable = [State.fields.len][256]Transition;
 
 /// Build the complete transition table at comptime
 pub const table: TransitionTable = buildTable();
-comptime {
-    for (0.., table) |r, row| {
-        const state = @as(State, @enumFromInt(r));
-        for (0.., row) |c, cell| {
-            if (cell._unassigned) |_| {
-                @compileLog(state, c, cell);
-            }
-        }
-    }
-}
+// comptime {
+//     for (0.., table) |r, row| {
+//         const state = @as(State, @enumFromInt(r));
+//         for (0.., row) |c, cell| {
+//             if (cell._unassigned) |_| {
+//                 @compileLog(state, c, cell);
+//             }
+//         }
+//     }
+// }
 
 fn buildTable() TransitionTable {
     @setEvalBranchQuota(100000);

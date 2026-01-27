@@ -13,6 +13,8 @@
 //! try termdraw.hline(&writer, .{ .x = 0, .y = 20, .width = 40 });
 //! ```
 
+const assert = std.debug.assert;
+
 /// Terminal drawing context for managing drawing state.
 pub const TermDraw = @This();
 
@@ -48,7 +50,10 @@ const BoxOptions = struct {
 /// Draw a box with Unicode box-drawing characters.
 /// The box is drawn at the specified position with the given dimensions.
 /// Works with any writer that has print and writeAll methods.
+/// Invariant: width and height must be >= 2 for a proper box.
 pub fn box(w: anytype, o: BoxOptions) !void {
+    // A box needs at least 2x2 for corners
+    assert(o.width >= 2 and o.height >= 2);
     const x = o.x;
     const y = o.y;
     const width = o.width;

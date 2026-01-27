@@ -3,6 +3,8 @@
 //! Simplifies the common pattern of polling events, handling them, and rendering.
 //! All events (keyboard, mouse, resize, etc.) are unified into a single event channel.
 
+const assert = std.debug.assert;
+
 /// Generic event/render loop runner.
 ///
 /// The app type `T` must implement:
@@ -20,7 +22,12 @@ pub fn Runner(comptime T: type) type {
         /// Configuration options for the runner.
         pub const Options = struct {
             /// Target frames per second (controls sleep duration between frames).
+            /// Must be > 0 to avoid division by zero.
             fps: u32 = 30,
+
+            pub fn validate(self: Options) void {
+                assert(self.fps > 0); // fps must be positive to avoid division by zero
+            }
         };
 
         /// Shared state for signal handlers
@@ -44,6 +51,7 @@ pub fn Runner(comptime T: type) type {
 
         /// Run with custom options.
         pub fn runWithOptions(app: *T, proc: std.process.Init, screen_options: Screen.Options, options: Options) !void {
+            options.validate();
             const io = proc.io;
             var screen = try Screen.init(io, screen_options);
             // Cleanup errors are ignored - terminal state restoration is best-effort

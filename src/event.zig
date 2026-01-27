@@ -24,6 +24,8 @@
 //! }
 //! ```
 
+const assert = std.debug.assert;
+
 /// Input event from the terminal.
 ///
 /// This is a tagged union that can hold any of the supported event types.
@@ -146,6 +148,8 @@ pub const Event = union(enum) {
         /// - bit 5: motion
         /// - bits 6-7: scroll wheel (64=up, 65=down)
         pub fn fromButtonCode(code: usize, final: u8) Mouse {
+            // Final byte must be 'M' (press) or 'm' (release)
+            assert(final == 'M' or final == 'm');
             const is_motion = (code & 32) != 0;
             const is_scroll = (code & 64) != 0;
 

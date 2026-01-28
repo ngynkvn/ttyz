@@ -73,7 +73,7 @@ pub fn repeat(char: u8, count: usize, buf: []u8) []const u8 {
 }
 
 /// Write a horizontal rule
-pub fn writeHorizontalRule(writer: std.Io.Writer, width: usize, char: u8) !void {
+pub fn writeHorizontalRule(writer: *std.Io.Writer, width: usize, char: u8) !void {
     var i: usize = 0;
     while (i < width) : (i += 1) {
         try writer.writeByte(char);
@@ -179,4 +179,109 @@ test "repeat" {
     var buf: [10]u8 = undefined;
     const result = repeat('-', 5, &buf);
     try std.testing.expectEqualStrings("-----", result);
+}
+
+test "repeat - buffer overflow protection" {
+    var buf: [3]u8 = undefined;
+    // Try to repeat more than buffer can hold
+    const result = repeat('X', 10, &buf);
+    try std.testing.expectEqualStrings("XXX", result);
+}
+
+test "repeat - zero count" {
+    var buf: [10]u8 = undefined;
+    const result = repeat('-', 0, &buf);
+    try std.testing.expectEqualStrings("", result);
+}
+
+test "padRight - basic" {
+    var buf: [20]u8 = undefined;
+    const result = padRight("Hi", 10, &buf);
+    try std.testing.expectEqualStrings("Hi        ", result);
+}
+
+test "padRight - text longer than width" {
+    var buf: [20]u8 = undefined;
+    const result = padRight("Hello World", 5, &buf);
+    try std.testing.expectEqualStrings("Hello World", result);
+}
+
+test "padRight - exact width" {
+    var buf: [20]u8 = undefined;
+    const result = padRight("Hello", 5, &buf);
+    try std.testing.expectEqualStrings("Hello", result);
+}
+
+test "padRight - empty text" {
+    var buf: [20]u8 = undefined;
+    const result = padRight("", 5, &buf);
+    try std.testing.expectEqualStrings("     ", result);
+}
+
+test "padLeft - basic" {
+    var buf: [20]u8 = undefined;
+    const result = padLeft("Hi", 10, &buf);
+    try std.testing.expectEqualStrings("        Hi", result);
+}
+
+test "padLeft - text longer than width" {
+    var buf: [20]u8 = undefined;
+    const result = padLeft("Hello World", 5, &buf);
+    try std.testing.expectEqualStrings("Hello World", result);
+}
+
+test "padLeft - exact width" {
+    var buf: [20]u8 = undefined;
+    const result = padLeft("Hello", 5, &buf);
+    try std.testing.expectEqualStrings("Hello", result);
+}
+
+test "padLeft - empty text" {
+    var buf: [20]u8 = undefined;
+    const result = padLeft("", 5, &buf);
+    try std.testing.expectEqualStrings("     ", result);
+}
+
+test "truncate - text shorter than max" {
+    const result = try truncate(std.testing.allocator, "Hi", 10);
+    // No allocation, returns original slice
+    try std.testing.expectEqualStrings("Hi", result);
+}
+
+test "truncate - exact length" {
+    const result = try truncate(std.testing.allocator, "Hello", 5);
+    try std.testing.expectEqualStrings("Hello", result);
+}
+
+test "truncate - needs ellipsis" {
+    const result = try truncate(std.testing.allocator, "Hello World", 8);
+    defer std.testing.allocator.free(result);
+    try std.testing.expectEqualStrings("Hello...", result);
+}
+
+test "truncate - very short max (3 or less)" {
+    const r1 = try truncate(std.testing.allocator, "Hello", 3);
+    try std.testing.expectEqualStrings("Hel", r1);
+
+    const r2 = try truncate(std.testing.allocator, "Hello", 2);
+    try std.testing.expectEqualStrings("He", r2);
+
+    const r3 = try truncate(std.testing.allocator, "Hello", 1);
+    try std.testing.expectEqualStrings("H", r3);
+}
+
+test "writeHorizontalRule" {
+    var buf: [20]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buf);
+
+    try writeHorizontalRule(&writer, 5, '-');
+    try std.testing.expectEqualStrings("-----", writer.buffered());
+}
+
+test "writeHorizontalRule - zero width" {
+    var buf: [20]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buf);
+
+    try writeHorizontalRule(&writer, 0, '-');
+    try std.testing.expectEqualStrings("", writer.buffered());
 }

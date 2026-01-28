@@ -65,6 +65,8 @@ pub const draw = struct {
 
 test {
     std.testing.refAllDecls(@This());
+    // Run comprehensive correctness tests
+    _ = @import("tests/correctness_tests.zig");
 }
 
 const std = @import("std");

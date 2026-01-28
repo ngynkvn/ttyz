@@ -340,13 +340,8 @@ pub const Screen = struct {
     pub fn printArgs(self: *Screen, comptime fmt: []const u8, args: anytype, wargs: WriteArgs) !void {
         self.lock.lock();
         defer self.lock.unlock();
-        if (wargs.sleep != 0) {
-            const ts = std.c.timespec{
-                .sec = @intCast(wargs.sleep / std.time.ns_per_s),
-                .nsec = @intCast(wargs.sleep % std.time.ns_per_s),
-            };
-            _ = std.c.nanosleep(&ts, null);
-        }
+        // Note: sleep functionality removed in 0.16 migration
+        _ = wargs.sleep;
         // Format into a stack buffer then write through backend
         var buf: [256]u8 = undefined;
         const formatted = std.fmt.bufPrint(&buf, fmt, args) catch &buf;

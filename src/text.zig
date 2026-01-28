@@ -72,14 +72,6 @@ pub fn repeat(char: u8, count: usize, buf: []u8) []const u8 {
     return buf[0..len];
 }
 
-/// Write a horizontal rule
-pub fn writeHorizontalRule(writer: std.Io.Writer, width: usize, char: u8) !void {
-    var i: usize = 0;
-    while (i < width) : (i += 1) {
-        try writer.writeByte(char);
-    }
-}
-
 /// Test case for graphemeCount function.
 const GraphemeCountTestCase = struct {
     input: []const u8,

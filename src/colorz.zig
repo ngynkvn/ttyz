@@ -106,9 +106,9 @@ pub const Colorz = struct {
     }
 };
 
-/// Wrap any writer to enable color code parsing.
-pub fn wrap(inner: anytype) Colorz(@TypeOf(inner)) {
-    return Colorz(@TypeOf(inner)).init(inner);
+/// Wrap a writer to enable color code parsing.
+pub fn wrap(inner: std.Io.Writer) Colorz {
+    return Colorz.init(inner);
 }
 
 /// Basic terminal colors.

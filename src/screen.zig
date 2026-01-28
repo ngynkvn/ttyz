@@ -25,16 +25,6 @@ var tty_fd: ?posix.fd_t = null;
 /// It provides thread-safe methods for writing to the terminal and polling for
 /// input events.
 pub const Screen = struct {
-    /// Error type for Screen write operations.
-    pub const WriteError = error{WriteFailed};
-    pub const ReadError = error{ReadFailed};
-
-    /// Options for `printArgs`.
-    pub const WriteArgs = struct {
-        /// Optional sleep duration in nanoseconds before writing.
-        sleep: usize = 0,
-    };
-
     /// Configuration options for Screen initialization.
     pub const Options = struct {
         /// Buffer for the output writer.
@@ -315,7 +305,15 @@ pub const Screen = struct {
 
     /// Print formatted output to the terminal.
     pub fn print(self: *Screen, comptime fmt: []const u8, args: anytype) !void {
-        try self.printArgs(fmt, args, .{});
+        self.lock.lock();
+        defer self.lock.unlock();
+        // Format into a stack buffer then write through backend
+        var buf: [256]u8 = undefined;
+        const formatted = std.fmt.bufPrint(&buf, fmt, args) catch &buf;
+        var written: usize = 0;
+        while (written < formatted.len) {
+            written += self.backend.write(formatted[written..]) catch break;
+        }
     }
 
     /// Write raw bytes to the terminal.
@@ -333,26 +331,6 @@ pub const Screen = struct {
         var written: usize = 0;
         while (written < buf.len) {
             written += try self.backend.write(buf[written..]);
-        }
-    }
-
-    /// Print formatted output with additional options.
-    pub fn printArgs(self: *Screen, comptime fmt: []const u8, args: anytype, wargs: WriteArgs) !void {
-        self.lock.lock();
-        defer self.lock.unlock();
-        if (wargs.sleep != 0) {
-            const ts = std.c.timespec{
-                .sec = @intCast(wargs.sleep / std.time.ns_per_s),
-                .nsec = @intCast(wargs.sleep % std.time.ns_per_s),
-            };
-            _ = std.c.nanosleep(&ts, null);
-        }
-        // Format into a stack buffer then write through backend
-        var buf: [256]u8 = undefined;
-        const formatted = std.fmt.bufPrint(&buf, fmt, args) catch &buf;
-        var written: usize = 0;
-        while (written < formatted.len) {
-            written += self.backend.write(formatted[written..]) catch break;
         }
     }
 

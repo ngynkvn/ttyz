@@ -30,7 +30,6 @@
 //! }
 //! ```
 
-
 /// Comprehensive ANSI escape sequence library.
 /// Comptime color format string parser for inline ANSI colors.
 /// VT100/xterm escape sequence constants.
@@ -73,7 +72,6 @@ pub const colorz = @import("colorz.zig");
 pub const event = @import("event.zig");
 pub const frame = @import("frame.zig");
 pub const kitty = @import("kitty.zig");
-pub const layout = @import("layout.zig");
 pub const parser = @import("parser.zig");
 pub const runner = @import("runner.zig");
 pub const screen = @import("screen.zig");

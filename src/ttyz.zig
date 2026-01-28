@@ -54,7 +54,7 @@ pub const queryHandleSize = screen.queryHandleSize;
 /// Box drawing with Unicode characters.
 /// Test utilities for capturing terminal output.
 pub const TestCapture = test_capture.TestCapture;
-/// Text utilities for padding, centering, and display width.
+/// Text utilities for padding, centering, and codepoint counting.
 
 // Core modules
 // Re-export main types

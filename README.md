@@ -11,7 +11,7 @@ A Zig library for building terminal user interfaces (TUI). Provides low-level te
 - **Kitty graphics protocol** support for terminal image display
 - **Box drawing** with Unicode characters
 - **Comptime color parsing** for inline ANSI colors in format strings
-- **Text utilities** for padding, centering, and display width calculation
+- **Text utilities** for padding, centering, and Unicode codepoint counting
 
 ## Requirements
 
@@ -286,8 +286,8 @@ try canvas.writeKitty(&writer);
 Common text operations:
 
 ```zig
-// Display width (handles unicode)
-const width = ttyz.text.graphemeCount("Hello");
+// Codepoint count (UTF-8)
+const width = ttyz.text.codepointCount("Hello");
 
 // Padding
 var buf: [32]u8 = undefined;

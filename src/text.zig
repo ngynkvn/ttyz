@@ -1,13 +1,14 @@
 //! Text utilities for terminal output formatting.
 //!
 //! Provides common text operations like padding, centering, truncation,
-//! and display width calculation for terminal output.
+//! and Unicode codepoint counting for terminal output.
+//! For ANSI-aware display width, see `ansi.stringWidth`.
 //!
 //! ## Example
 //! ```zig
 //! var buf: [32]u8 = undefined;
 //! const padded = text.padRight("Hi", 10, &buf);  // "Hi        "
-//! const width = text.graphemeCount("Hello");      // 5
+//! const width = text.codepointCount("Hello");     // 5
 //! ```
 
 const std = @import("std");
@@ -54,7 +55,9 @@ pub fn padLeft(text: []const u8, width: usize, buf: []u8) []const u8 {
     return buf[0 .. pad_len + copy_len];
 }
 
-pub fn graphemeCount(text: []const u8) usize {
+/// Count Unicode code points in a UTF-8 string.
+/// This does not compute grapheme clusters or terminal display width.
+pub fn codepointCount(text: []const u8) usize {
     var i: usize = 0;
     var width: usize = 0;
     while (i < text.len) {
@@ -63,6 +66,12 @@ pub fn graphemeCount(text: []const u8) usize {
         i += len;
     }
     return width;
+}
+
+/// Deprecated: counts code points (not grapheme clusters).
+/// Use `codepointCount` for a clearer name.
+pub fn graphemeCount(text: []const u8) usize {
+    return codepointCount(text);
 }
 
 /// Repeat a character n times into a buffer
@@ -80,16 +89,16 @@ pub fn writeHorizontalRule(writer: std.Io.Writer, width: usize, char: u8) !void 
     }
 }
 
-/// Test case for graphemeCount function.
-const GraphemeCountTestCase = struct {
+/// Test case for codepointCount function.
+const CodepointCountTestCase = struct {
     input: []const u8,
     expected: usize,
     description: []const u8,
 };
 
-/// All graphemeCount test cases in a single array.
-/// graphemeCount counts Unicode code points (characters), not display width.
-const grapheme_count_test_cases = [_]GraphemeCountTestCase{
+/// All codepointCount test cases in a single array.
+/// codepointCount counts Unicode code points (characters), not display width.
+const codepoint_count_test_cases = [_]CodepointCountTestCase{
     // Basic ASCII
     .{ .input = "hello", .expected = 5, .description = "basic ASCII word" },
     .{ .input = "", .expected = 0, .description = "empty string" },
@@ -164,15 +173,19 @@ const grapheme_count_test_cases = [_]GraphemeCountTestCase{
     .{ .input = "ｲ", .expected = 1, .description = "Halfwidth katakana I" },
 };
 
-test "graphemeCount" {
-    for (grapheme_count_test_cases) |tc| {
+test "codepointCount" {
+    for (codepoint_count_test_cases) |tc| {
         errdefer {
             std.debug.print("FAIL: {s} - input: \"{s}\"\n", .{ tc.description, tc.input });
         }
-        std.testing.expectEqual(tc.expected, graphemeCount(tc.input)) catch {
+        std.testing.expectEqual(tc.expected, codepointCount(tc.input)) catch {
             std.debug.print("WARN: {s} - input: \"{s}\"\n", .{ tc.description, tc.input });
         };
     }
+}
+
+test "graphemeCount alias" {
+    try std.testing.expectEqual(codepointCount("Hello"), graphemeCount("Hello"));
 }
 
 test "repeat" {

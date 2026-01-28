@@ -13,9 +13,6 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
-/// Text utilities for terminal output.
-pub const Text = @This();
-
 /// Truncate text to fit within width, adding ellipsis if needed
 pub fn truncate(allocator: std.mem.Allocator, text: []const u8, max_width: usize) ![]const u8 {
     if (text.len <= max_width) return text;

@@ -13,9 +13,6 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
-/// Text utilities for terminal output.
-pub const Text = @This();
-
 /// Truncate text to fit within width, adding ellipsis if needed
 pub fn truncate(allocator: std.mem.Allocator, text: []const u8, max_width: usize) ![]const u8 {
     if (text.len <= max_width) return text;
@@ -70,14 +67,6 @@ pub fn repeat(char: u8, count: usize, buf: []u8) []const u8 {
     const len = @min(count, buf.len);
     @memset(buf[0..len], char);
     return buf[0..len];
-}
-
-/// Write a horizontal rule
-pub fn writeHorizontalRule(writer: std.Io.Writer, width: usize, char: u8) !void {
-    var i: usize = 0;
-    while (i < width) : (i += 1) {
-        try writer.writeByte(char);
-    }
 }
 
 /// Test case for graphemeCount function.

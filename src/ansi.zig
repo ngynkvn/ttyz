@@ -1245,90 +1245,6 @@ test "erase sequences" {
     try std.testing.expectEqualStrings("\x1b[2K", writer.buffered());
 }
 
-// =============================================================================
-// Equivalency Tests - Verify ansi.zig matches esc.zig
-// =============================================================================
-
-test "equivalency: cursor sequences" {
-    try std.testing.expectEqualStrings(E.HOME, cursor_home);
-    try std.testing.expectEqualStrings(E.CURSOR_INVISIBLE, cursor_hide);
-    try std.testing.expectEqualStrings(E.CURSOR_VISIBLE, cursor_show);
-    // Note: esc.zig uses DEC sequences (\x1b[7/8) vs ansi.zig uses ANSI sequences (\x1b[s/u)
-    // Both are valid but different - DEC is more widely supported
-    try std.testing.expectEqualStrings(E.CURSOR_SAVE_POS, "\x1b[7");
-    try std.testing.expectEqualStrings(E.CURSOR_RESTORE_POS, "\x1b[8");
-}
-
-test "equivalency: style sequences" {
-    try std.testing.expectEqualStrings(E.BOLD, bold);
-    try std.testing.expectEqualStrings(E.DIM, faint);
-    try std.testing.expectEqualStrings(E.ITALIC, italic);
-    try std.testing.expectEqualStrings(E.UNDERLINE, underline);
-    try std.testing.expectEqualStrings(E.BLINK, slow_blink);
-    try std.testing.expectEqualStrings(E.REVERSE, reverse);
-    try std.testing.expectEqualStrings(E.STRIKETHROUGH, crossed_out);
-    try std.testing.expectEqualStrings(E.RESET_STYLE, reset);
-}
-
-test "equivalency: foreground colors" {
-    try std.testing.expectEqualStrings(E.FG_BLACK, fg.black);
-    try std.testing.expectEqualStrings(E.FG_RED, fg.red);
-    try std.testing.expectEqualStrings(E.FG_GREEN, fg.green);
-    try std.testing.expectEqualStrings(E.FG_YELLOW, fg.yellow);
-    try std.testing.expectEqualStrings(E.FG_BLUE, fg.blue);
-    try std.testing.expectEqualStrings(E.FG_MAGENTA, fg.magenta);
-    try std.testing.expectEqualStrings(E.FG_CYAN, fg.cyan);
-    try std.testing.expectEqualStrings(E.FG_WHITE, fg.white);
-    try std.testing.expectEqualStrings(E.FG_DEFAULT, fg.default);
-}
-
-test "equivalency: bright foreground colors" {
-    try std.testing.expectEqualStrings(E.FG_BRIGHT_BLACK, fg.bright_black);
-    try std.testing.expectEqualStrings(E.FG_BRIGHT_RED, fg.bright_red);
-    try std.testing.expectEqualStrings(E.FG_BRIGHT_GREEN, fg.bright_green);
-    try std.testing.expectEqualStrings(E.FG_BRIGHT_YELLOW, fg.bright_yellow);
-    try std.testing.expectEqualStrings(E.FG_BRIGHT_BLUE, fg.bright_blue);
-    try std.testing.expectEqualStrings(E.FG_BRIGHT_MAGENTA, fg.bright_magenta);
-    try std.testing.expectEqualStrings(E.FG_BRIGHT_CYAN, fg.bright_cyan);
-    try std.testing.expectEqualStrings(E.FG_BRIGHT_WHITE, fg.bright_white);
-}
-
-test "equivalency: background colors" {
-    try std.testing.expectEqualStrings(E.BG_BLACK, bg.black);
-    try std.testing.expectEqualStrings(E.BG_RED, bg.red);
-    try std.testing.expectEqualStrings(E.BG_GREEN, bg.green);
-    try std.testing.expectEqualStrings(E.BG_YELLOW, bg.yellow);
-    try std.testing.expectEqualStrings(E.BG_BLUE, bg.blue);
-    try std.testing.expectEqualStrings(E.BG_MAGENTA, bg.magenta);
-    try std.testing.expectEqualStrings(E.BG_CYAN, bg.cyan);
-    try std.testing.expectEqualStrings(E.BG_WHITE, bg.white);
-    try std.testing.expectEqualStrings(E.BG_DEFAULT, bg.default);
-}
-
-test "equivalency: bright background colors" {
-    try std.testing.expectEqualStrings(E.BG_BRIGHT_BLACK, bg.bright_black);
-    try std.testing.expectEqualStrings(E.BG_BRIGHT_RED, bg.bright_red);
-    try std.testing.expectEqualStrings(E.BG_BRIGHT_GREEN, bg.bright_green);
-    try std.testing.expectEqualStrings(E.BG_BRIGHT_YELLOW, bg.bright_yellow);
-    try std.testing.expectEqualStrings(E.BG_BRIGHT_BLUE, bg.bright_blue);
-    try std.testing.expectEqualStrings(E.BG_BRIGHT_MAGENTA, bg.bright_magenta);
-    try std.testing.expectEqualStrings(E.BG_BRIGHT_CYAN, bg.bright_cyan);
-    try std.testing.expectEqualStrings(E.BG_BRIGHT_WHITE, bg.bright_white);
-}
-
-test "equivalency: screen sequences" {
-    try std.testing.expectEqualStrings(E.CLEAR_SCREEN, erase_screen);
-    // E.CLEAR_LINE is "[K" (implicit 0) vs erase_to_end_of_line is "[0K" (explicit 0)
-    // Both are functionally equivalent but different strings
-    try std.testing.expectEqualStrings(E.CLEAR_LINE, CSI ++ "K");
-    try std.testing.expectEqualStrings(E.CLEAR_LINE_ALL, erase_line);
-    try std.testing.expectEqualStrings(E.ENTER_ALT_SCREEN, alt_buffer_enable);
-    try std.testing.expectEqualStrings(E.EXIT_ALT_SCREEN, alt_buffer_disable);
-    try std.testing.expectEqualStrings(E.ENABLE_MOUSE_TRACKING, mouse_tracking_enable);
-    try std.testing.expectEqualStrings(E.DISABLE_MOUSE_TRACKING, mouse_tracking_disable);
-    try std.testing.expectEqualStrings(E.REPORT_CURSOR_POS, cursor_position_report);
-}
-
 test "String builder" {
     // Basic styling with auto-reset
     const bold_text = comptime str("Hello").bold().done();
@@ -1355,30 +1271,6 @@ test "String builder" {
     try std.testing.expectEqualStrings("\x1b[41m\x1b[37malert\x1b[0m", bg_str);
 }
 
-test "equivalency: format strings match" {
-    // These are format strings, verify they produce same output
-    var buf1: [32]u8 = undefined;
-    var buf2: [32]u8 = undefined;
-
-    // GOTO format
-    const goto1 = std.fmt.bufPrint(&buf1, E.GOTO, .{ @as(u16, 5), @as(u16, 10) }) catch unreachable;
-    const goto2 = std.fmt.bufPrint(&buf2, CSI ++ "{d};{d}H", .{ @as(u16, 5), @as(u16, 10) }) catch unreachable;
-    try std.testing.expectEqualStrings(goto1, goto2);
-
-    // 256 color format
-    const fg256_1 = std.fmt.bufPrint(&buf1, E.SET_FG_256, .{@as(u8, 196)}) catch unreachable;
-    const fg256_2 = std.fmt.bufPrint(&buf2, CSI ++ "38;5;{d}m", .{@as(u8, 196)}) catch unreachable;
-    try std.testing.expectEqualStrings(fg256_1, fg256_2);
-
-    // True color format
-    const tc1 = std.fmt.bufPrint(&buf1, E.SET_TRUCOLOR, .{ @as(u8, 255), @as(u8, 128), @as(u8, 64) }) catch unreachable;
-    const tc2 = std.fmt.bufPrint(&buf2, CSI ++ "38;2;{};{};{}m", .{ @as(u8, 255), @as(u8, 128), @as(u8, 64) }) catch unreachable;
-    try std.testing.expectEqualStrings(tc1, tc2);
-}
-
-// Keep E import for equivalency tests only
-
 const std = @import("std");
 
-const E = @import("esc.zig").E;
 pub const parser = @import("parser.zig");

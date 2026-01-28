@@ -15,11 +15,7 @@
 
 const assert = std.debug.assert;
 
-/// Terminal drawing context for managing drawing state.
-pub const TermDraw = @This();
-
-width: usize,
-height: usize,
+// Box character constants from the Heavy style
 const C = BoxChars.Heavy;
 const horiz = C.get(.horiz);
 const vert = C.get(.vert);
@@ -27,11 +23,6 @@ const dl = C.get(.dl);
 const dr = C.get(.dr);
 const ur = C.get(.ur);
 const ul = C.get(.ul);
-
-/// Initialize a TermDraw context with the given dimensions.
-pub fn init(width: usize, height: usize) !TermDraw {
-    return .{ .width = width, .height = height };
-}
 
 /// Options for drawing a box.
 const BoxOptions = struct {
@@ -124,17 +115,6 @@ pub fn vline(w: anytype, o: VLineOptions) !void {
     }
 }
 
-pub const Chars = [_][]const u8{
-    '─', '━', '│', '┃', '┄', '┅', '┆', '┇', '┈', '┉', '┊', '┋', '┌', '┍', '┎', '┏',
-    '┐', '┑', '┒', '┓', '└', '┕', '┖', '┗', '┘', '┙', '┚', '┛', '├', '┝', '┞', '┟',
-    '┠', '┡', '┢', '┣', '┤', '┥', '┦', '┧', '┨', '┩', '┪', '┫', '┬', '┭', '┮', '┯',
-    '┰', '┱', '┲', '┳', '┴', '┵', '┶', '┷', '┸', '┹', '┺', '┻', '┼', '┽', '┾', '┿',
-    '╀', '╁', '╂', '╃', '╄', '╅', '╆', '╇', '╈', '╉', '╊', '╋', '╌', '╍', '╎', '╏',
-    '═', '║', '╒', '╓', '╔', '╕', '╖', '╗', '╘', '╙', '╚', '╛', '╜', '╝', '╞', '╟',
-    '╠', '╡', '╢', '╣', '╤', '╥', '╦', '╧', '╨', '╩', '╪', '╫', '╬', '╭', '╮', '╯',
-    '╰', '╱', '╲', '╳', '╴', '╵', '╶', '╷', '╸', '╹', '╺', '╻', '╼', '╽', '╾', '╿',
-};
-
 const BoxChars = struct {
     const Heavy = std.enums.EnumArray(Names, []const u8).init(.{
         // zig fmt: off
@@ -201,12 +181,6 @@ const BoxChars = struct {
 const std = @import("std");
 const ansi = @import("ansi.zig");
 const testing = std.testing;
-
-test "TermDraw.init creates context with dimensions" {
-    const td = try TermDraw.init(80, 24);
-    try testing.expectEqual(@as(usize, 80), td.width);
-    try testing.expectEqual(@as(usize, 24), td.height);
-}
 
 test "box draws correct corner characters" {
     var buf: [512]u8 = undefined;

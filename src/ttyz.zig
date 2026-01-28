@@ -30,35 +30,27 @@
 //! }
 //! ```
 
-
-/// Comprehensive ANSI escape sequence library.
-/// Comptime color format string parser for inline ANSI colors.
-/// VT100/xterm escape sequence constants.
+// Re-exported types for convenience
 pub const Event = event.Event;
-/// Frame-based drawing with cell buffers.
 pub const Frame = frame.Frame;
 pub const Buffer = frame.Buffer;
 pub const Cell = frame.Cell;
 pub const Rect = frame.Rect;
-/// Kitty graphics protocol for terminal image display.
-/// Immediate-mode UI layout engine.
-/// DEC ANSI escape sequence parser.
 pub const Runner = runner.Runner;
 pub const Screen = screen.Screen;
 pub const Backend = screen.Backend;
 pub const TtyBackend = screen.TtyBackend;
 pub const TestBackend = screen.TestBackend;
-pub const panic = screen.panic;
-pub const panicTty = screen.panicTty;
-pub const queryHandleSize = screen.queryHandleSize;
-/// Box drawing with Unicode characters.
-/// Test utilities for capturing terminal output.
 pub const TestCapture = test_capture.TestCapture;
-/// Text utilities for padding, centering, and display width.
 
-// Core modules
-// Re-export main types
-/// Pixel-level RGBA canvas (alias for kitty.Canvas).
+/// Panic handler that restores terminal state before panicking.
+pub const panic = screen.panic;
+/// Low-level panic handler function (use `panic` for the public API).
+pub const panicTty = screen.panicTty;
+/// Query terminal size for a given file descriptor.
+pub const queryHandleSize = screen.queryHandleSize;
+
+/// Pixel-level RGBA canvas for Kitty graphics protocol.
 pub const draw = struct {
     pub const Canvas = kitty.Canvas;
 };
@@ -73,7 +65,6 @@ pub const colorz = @import("colorz.zig");
 pub const event = @import("event.zig");
 pub const frame = @import("frame.zig");
 pub const kitty = @import("kitty.zig");
-pub const layout = @import("layout.zig");
 pub const parser = @import("parser.zig");
 pub const runner = @import("runner.zig");
 pub const screen = @import("screen.zig");

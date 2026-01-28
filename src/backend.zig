@@ -141,8 +141,6 @@ pub const TtyBackend = struct {
 pub const TestBackend = struct {
     output: std.ArrayList(u8),
     allocator: std.mem.Allocator,
-    events: []const Event,
-    event_idx: usize,
     width: u16,
     height: u16,
 
@@ -152,8 +150,6 @@ pub const TestBackend = struct {
         return .{
             .output = .{},
             .allocator = allocator,
-            .events = &.{},
-            .event_idx = 0,
             .width = width,
             .height = height,
         };
@@ -193,22 +189,6 @@ pub const TestBackend = struct {
     pub fn clearOutput(self: *TestBackend) void {
         self.output.clearRetainingCapacity();
     }
-
-    /// Set events to be returned by pollEvent.
-    pub fn setEvents(self: *TestBackend, events: []const Event) void {
-        self.events = events;
-        self.event_idx = 0;
-    }
-
-    /// Get next event (used by Screen).
-    pub fn nextEvent(self: *TestBackend) ?Event {
-        if (self.event_idx < self.events.len) {
-            const event = self.events[self.event_idx];
-            self.event_idx += 1;
-            return event;
-        }
-        return null;
-    }
 };
 
 test "TestBackend captures output" {
@@ -235,5 +215,3 @@ test "TestBackend returns configured size" {
 const std = @import("std");
 const posix = std.posix;
 const system = posix.system;
-
-const Event = @import("event.zig").Event;

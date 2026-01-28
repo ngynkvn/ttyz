@@ -115,11 +115,6 @@ pub const TestCapture = struct {
         self.backend.clearOutput();
     }
 
-    /// Inject events to be returned by screen.pollEvent().
-    pub fn setEvents(self: *TestCapture, events: []const Event) void {
-        self.backend.setEvents(events);
-    }
-
     /// Get the number of bytes captured.
     pub fn len(self: *TestCapture) usize {
         return self.getOutput().len;

@@ -673,3 +673,133 @@ test "Screen.deinit sets running to false" {
     _ = try screen.deinit();
     try std.testing.expect(!screen.running);
 }
+
+fn parseEventFromSeq(screen: *Screen, seq: []const u8) ?Event {
+    var event: ?Event = null;
+    for (seq) |byte| {
+        if (screen.input_parser.advance(byte)) |action| {
+            if (screen.actionToEvent(action, byte)) |ev| {
+                event = ev;
+            }
+        }
+    }
+    return event;
+}
+
+test "Screen.actionToEvent - CSI key sequences" {
+    var backend = TestBackend.init(std.testing.allocator, 80, 24);
+    defer backend.deinit();
+
+    var events_buf: [8]Event = undefined;
+    var textinput_buf: [16]u8 = undefined;
+    var writer_buf: [64]u8 = undefined;
+
+    var screen = try Screen.initTest(&backend, .{
+        .events = &events_buf,
+        .textinput = &textinput_buf,
+        .writer = &writer_buf,
+        .alt_screen = false,
+        .hide_cursor = false,
+        .mouse_tracking = false,
+    });
+    defer _ = screen.deinit() catch {};
+
+    const up = parseEventFromSeq(&screen, "\x1b[A").?;
+    switch (up) {
+        .key => |k| try std.testing.expectEqual(Event.Key.arrow_up, k),
+        else => try std.testing.expect(false),
+    }
+
+    screen.input_parser.reset();
+    const home = parseEventFromSeq(&screen, "\x1b[1~").?;
+    switch (home) {
+        .key => |k| try std.testing.expectEqual(Event.Key.home, k),
+        else => try std.testing.expect(false),
+    }
+
+    screen.input_parser.reset();
+    const f5 = parseEventFromSeq(&screen, "\x1b[15~").?;
+    switch (f5) {
+        .key => |k| try std.testing.expectEqual(Event.Key.f5, k),
+        else => try std.testing.expect(false),
+    }
+
+    screen.input_parser.reset();
+    const backtab = parseEventFromSeq(&screen, "\x1b[Z").?;
+    switch (backtab) {
+        .key => |k| try std.testing.expectEqual(Event.Key.backtab, k),
+        else => try std.testing.expect(false),
+    }
+}
+
+test "Screen.actionToEvent - CSI cursor and mouse sequences" {
+    var backend = TestBackend.init(std.testing.allocator, 80, 24);
+    defer backend.deinit();
+
+    var events_buf: [8]Event = undefined;
+    var textinput_buf: [16]u8 = undefined;
+    var writer_buf: [64]u8 = undefined;
+
+    var screen = try Screen.initTest(&backend, .{
+        .events = &events_buf,
+        .textinput = &textinput_buf,
+        .writer = &writer_buf,
+        .alt_screen = false,
+        .hide_cursor = false,
+        .mouse_tracking = false,
+    });
+    defer _ = screen.deinit() catch {};
+
+    const pos = parseEventFromSeq(&screen, "\x1b[10;20R").?;
+    switch (pos) {
+        .cursor_pos => |p| {
+            try std.testing.expectEqual(@as(usize, 10), p.row);
+            try std.testing.expectEqual(@as(usize, 20), p.col);
+        },
+        else => try std.testing.expect(false),
+    }
+
+    screen.input_parser.reset();
+    const mouse = parseEventFromSeq(&screen, "\x1b[<0;10;20M").?;
+    switch (mouse) {
+        .mouse => |m| {
+            try std.testing.expectEqual(Event.MouseButton.left, m.button);
+            try std.testing.expectEqual(Event.MouseButtonState.pressed, m.button_state);
+            try std.testing.expectEqual(@as(usize, 10), m.col);
+            try std.testing.expectEqual(@as(usize, 20), m.row);
+        },
+        else => try std.testing.expect(false),
+    }
+}
+
+test "Screen.actionToEvent - OSC focus sequences" {
+    var backend = TestBackend.init(std.testing.allocator, 80, 24);
+    defer backend.deinit();
+
+    var events_buf: [8]Event = undefined;
+    var textinput_buf: [16]u8 = undefined;
+    var writer_buf: [64]u8 = undefined;
+
+    var screen = try Screen.initTest(&backend, .{
+        .events = &events_buf,
+        .textinput = &textinput_buf,
+        .writer = &writer_buf,
+        .alt_screen = false,
+        .hide_cursor = false,
+        .mouse_tracking = false,
+    });
+    defer _ = screen.deinit() catch {};
+
+    const focused = parseEventFromSeq(&screen, "\x1b]I\x07").?;
+    switch (focused) {
+        .focus => |state| try std.testing.expect(state),
+        else => try std.testing.expect(false),
+    }
+
+    screen.input_parser.reset();
+    const unfocused = parseEventFromSeq(&screen, "\x1b]O\x07").?;
+    switch (unfocused) {
+        .focus => |state| try std.testing.expect(!state),
+        else => try std.testing.expect(false),
+    }
+}

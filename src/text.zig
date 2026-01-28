@@ -180,3 +180,37 @@ test "repeat" {
     const result = repeat('-', 5, &buf);
     try std.testing.expectEqualStrings("-----", result);
 }
+
+test "padRight pads to width with buffer limits" {
+    var buf: [8]u8 = undefined;
+    const padded = padRight("hi", 5, &buf);
+    try std.testing.expectEqualStrings("hi   ", padded);
+
+    var small_buf: [3]u8 = undefined;
+    const clipped = padRight("hi", 5, &small_buf);
+    try std.testing.expectEqualStrings("hi ", clipped);
+}
+
+test "padLeft pads to width with buffer limits" {
+    var buf: [6]u8 = undefined;
+    const padded = padLeft("hi", 4, &buf);
+    try std.testing.expectEqualStrings("  hi", padded);
+
+    var small_buf: [3]u8 = undefined;
+    const clipped = padLeft("hi", 4, &small_buf);
+    try std.testing.expectEqualStrings("  h", clipped);
+}
+
+test "truncate adds ellipsis when needed" {
+    const allocator = std.testing.allocator;
+
+    const unchanged = try truncate(allocator, "hello", 10);
+    try std.testing.expectEqualStrings("hello", unchanged);
+
+    const ellipsis = try truncate(allocator, "hello world", 8);
+    defer allocator.free(ellipsis);
+    try std.testing.expectEqualStrings("hello...", ellipsis);
+
+    const short = try truncate(allocator, "hello", 3);
+    try std.testing.expectEqualStrings("hel", short);
+}

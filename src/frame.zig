@@ -210,6 +210,119 @@ pub const Frame = struct {
     }
 };
 
+test "Frame.setString clips to buffer width" {
+    var buffer = try Buffer.init(std.testing.allocator, 4, 2);
+    defer buffer.deinit();
+
+    var frame = Frame.init(&buffer);
+    frame.setString(2, 0, "ABCDE", .{}, .default, .default);
+
+    try std.testing.expectEqual(@as(u21, 'A'), buffer.get(2, 0).char);
+    try std.testing.expectEqual(@as(u21, 'B'), buffer.get(3, 0).char);
+    try std.testing.expectEqual(@as(u21, ' '), buffer.get(0, 0).char);
+    try std.testing.expectEqual(@as(u21, ' '), buffer.get(1, 1).char);
+}
+
+test "Frame.fillRect clips to buffer bounds" {
+    var buffer = try Buffer.init(std.testing.allocator, 4, 3);
+    defer buffer.deinit();
+
+    var frame = Frame.init(&buffer);
+    const cell = Cell{ .char = 'X' };
+    frame.fillRect(.{ .x = 2, .y = 1, .width = 4, .height = 4 }, cell);
+
+    try std.testing.expectEqual(@as(u21, 'X'), buffer.get(2, 1).char);
+    try std.testing.expectEqual(@as(u21, 'X'), buffer.get(3, 2).char);
+    try std.testing.expectEqual(@as(u21, ' '), buffer.get(1, 1).char);
+}
+
+test "Frame.drawRectStyled applies border style and colors" {
+    var buffer = try Buffer.init(std.testing.allocator, 5, 4);
+    defer buffer.deinit();
+
+    var frame = Frame.init(&buffer);
+    const rect = Rect{ .x = 0, .y = 0, .width = 5, .height = 4 };
+    const style = Style{ .bold = true };
+    const fg = Color.green;
+    const bg = Color.blue;
+    frame.drawRectStyled(rect, .single, style, fg, bg);
+
+    const chars = BorderStyle.single.chars();
+    const tl = buffer.get(0, 0);
+    try std.testing.expectEqual(chars.top_left, tl.char);
+    try std.testing.expect(tl.style.eql(style));
+    try std.testing.expect(tl.fg.eql(fg));
+    try std.testing.expect(tl.bg.eql(bg));
+
+    const br = buffer.get(4, 3);
+    try std.testing.expectEqual(chars.bottom_right, br.char);
+
+    const top_mid = buffer.get(2, 0);
+    try std.testing.expectEqual(chars.horizontal, top_mid.char);
+
+    const left_mid = buffer.get(0, 2);
+    try std.testing.expectEqual(chars.vertical, left_mid.char);
+
+    const inner = buffer.get(2, 2);
+    try std.testing.expectEqual(@as(u21, ' '), inner.char);
+}
+
+test "Frame.hline and vline clip to bounds" {
+    var buffer = try Buffer.init(std.testing.allocator, 4, 3);
+    defer buffer.deinit();
+
+    var frame = Frame.init(&buffer);
+    frame.hline(2, 1, 5, '-', .{}, .default, .default);
+    try std.testing.expectEqual(@as(u21, '-'), buffer.get(2, 1).char);
+    try std.testing.expectEqual(@as(u21, '-'), buffer.get(3, 1).char);
+    try std.testing.expectEqual(@as(u21, ' '), buffer.get(0, 1).char);
+
+    frame.vline(1, 0, 10, '|', .{}, .default, .default);
+    try std.testing.expectEqual(@as(u21, '|'), buffer.get(1, 0).char);
+    try std.testing.expectEqual(@as(u21, '|'), buffer.get(1, 2).char);
+    try std.testing.expectEqual(@as(u21, ' '), buffer.get(3, 2).char);
+}
+
+test "Frame.render emits styled output" {
+    var backend = ttyz.TestBackend.init(std.testing.allocator, 4, 1);
+    defer backend.deinit();
+
+    var events_buf: [8]ttyz.Event = undefined;
+    var textinput_buf: [16]u8 = undefined;
+    var writer_buf: [64]u8 = undefined;
+
+    var screen = try Screen.initTest(&backend, .{
+        .events = &events_buf,
+        .textinput = &textinput_buf,
+        .writer = &writer_buf,
+        .alt_screen = false,
+        .hide_cursor = false,
+        .mouse_tracking = false,
+    });
+    defer _ = screen.deinit() catch {};
+
+    var buffer = try Buffer.init(std.testing.allocator, 4, 1);
+    defer buffer.deinit();
+
+    var frame = Frame.init(&buffer);
+    const fg = Color.green;
+    frame.setString(0, 0, "Hi", .{ .bold = true }, fg, .default);
+    try frame.render(&screen);
+    try screen.flush();
+
+    const output = backend.getOutput();
+    try std.testing.expect(std.mem.indexOf(u8, output, "Hi") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, ansi.bold) != null);
+
+    const fg_index: u8 = switch (fg) {
+        .indexed => |i| i,
+        else => 0,
+    };
+    var seq_buf: [32]u8 = undefined;
+    const fg_seq = std.fmt.bufPrint(&seq_buf, ansi.fg_256_fmt, .{fg_index}) catch unreachable;
+    try std.testing.expect(std.mem.indexOf(u8, output, fg_seq) != null);
+}
+
 test {
     _ = @import("frame/types.zig");
     _ = @import("frame/rect.zig");
